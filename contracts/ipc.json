@@ -1771,6 +1771,15 @@
                 ],
                 "type": "string"
               },
+              "updateSource": {
+                "default": "github",
+                "description": "更新下载来源：github = GitHub 直连；ghproxy = gh-proxy 加速\n（在下载链接前拼代理前缀）。",
+                "enum": [
+                  "github",
+                  "ghproxy"
+                ],
+                "type": "string"
+              },
               "version": {
                 "default": "",
                 "description": "只读：由应用在读取时注入并返回前端，但不接受数据库中的旧值。\n`persist` 会在写库前显式剔除这两个运行时字段。",
@@ -1783,6 +1792,7 @@
               "firstRunDone",
               "autostart",
               "updateChannel",
+              "updateSource",
               "hotkeys",
               "autoBlock",
               "accessibility",
@@ -3323,6 +3333,15 @@
               ],
               "type": "string"
             },
+            "updateSource": {
+              "default": "github",
+              "description": "更新下载来源：github = GitHub 直连；ghproxy = gh-proxy 加速\n（在下载链接前拼代理前缀）。",
+              "enum": [
+                "github",
+                "ghproxy"
+              ],
+              "type": "string"
+            },
             "version": true
           },
           "title": "SettingsPatch",
@@ -3858,6 +3877,15 @@
             ],
             "type": "string"
           },
+          "updateSource": {
+            "default": "github",
+            "description": "更新下载来源：github = GitHub 直连；ghproxy = gh-proxy 加速\n（在下载链接前拼代理前缀）。",
+            "enum": [
+              "github",
+              "ghproxy"
+            ],
+            "type": "string"
+          },
           "version": {
             "default": "",
             "description": "只读：由应用在读取时注入并返回前端，但不接受数据库中的旧值。\n`persist` 会在写库前显式剔除这两个运行时字段。",
@@ -3870,6 +3898,7 @@
           "firstRunDone",
           "autostart",
           "updateChannel",
+          "updateSource",
           "hotkeys",
           "autoBlock",
           "accessibility",
@@ -5334,6 +5363,11 @@
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "string",
           "type": "string"
+        },
+        "source": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "string",
+          "type": "string"
         }
       },
       "optionalArgs": [],
@@ -5361,6 +5395,10 @@
               "version": {
                 "description": "新版本号（不含 v 前缀），如 2.0.0-beta2。",
                 "type": "string"
+              },
+              "source": {
+                "description": "本次检查使用的下载来源：github / ghproxy。向导按它下载。",
+                "type": "string"
               }
             },
             "required": [
@@ -5368,7 +5406,8 @@
               "prerelease",
               "notes",
               "releaseUrl",
-              "assetName"
+              "assetName",
+              "source"
             ],
             "type": "object"
           }
@@ -5387,6 +5426,11 @@
     },
     "download_update": {
       "args": {
+        "source": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "string",
+          "type": "string"
+        },
         "version": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "title": "string",
@@ -5407,6 +5451,67 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "null",
         "type": "null"
+      }
+    },
+    "probe_update_source": {
+      "args": {},
+      "optionalArgs": [],
+      "result": {
+        "$defs": {
+          "SourceProbe": {
+            "description": "单个下载来源的测速结果。",
+            "properties": {
+              "error": {
+                "description": "失败原因（成功时为空）。",
+                "type": "string"
+              },
+              "latencyMs": {
+                "description": "发出请求到收到响应头的耗时（毫秒）。",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reachable": {
+                "description": "能否连通并读到数据。",
+                "type": "boolean"
+              },
+              "source": {
+                "description": "来源标识：github / ghproxy。",
+                "type": "string"
+              },
+              "speedKbps": {
+                "description": "平均速度（KB/秒，按实际读到的字节计算）。",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "source",
+              "reachable",
+              "latencyMs",
+              "speedKbps",
+              "error"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "两个下载来源的测速报告。",
+        "properties": {
+          "probes": {
+            "description": "各来源结果，顺序固定为 github、ghproxy。",
+            "items": {
+              "$ref": "#/$defs/SourceProbe"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "probes"
+        ],
+        "title": "SourceProbeReport",
+        "type": "object"
       }
     }
   },
@@ -6269,6 +6374,15 @@
           ],
           "type": "string"
         },
+        "updateSource": {
+          "default": "github",
+          "description": "更新下载来源：github = GitHub 直连；ghproxy = gh-proxy 加速\n（在下载链接前拼代理前缀）。",
+          "enum": [
+            "github",
+            "ghproxy"
+          ],
+          "type": "string"
+        },
         "version": {
           "default": "",
           "description": "只读：由应用在读取时注入并返回前端，但不接受数据库中的旧值。\n`persist` 会在写库前显式剔除这两个运行时字段。",
@@ -6281,6 +6395,7 @@
         "firstRunDone",
         "autostart",
         "updateChannel",
+        "updateSource",
         "hotkeys",
         "autoBlock",
         "accessibility",

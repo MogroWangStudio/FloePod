@@ -33,14 +33,16 @@ export type RetryResult = { "kind": string; "operationId": number; "result": unk
 export type SafeExportResult = { "completed": Array<CleanResult>; "failed": Array<string>; };
 export type ScanStatus = "checked" | "skipped" | "failed";
 export type SecurityStatus = { "efsEncrypted": boolean; "expiresSoon": number; "locked": boolean; "podId": number; "sensitive": boolean; };
-export type Settings = { "accessibility": Accessibility; "autoBlock": AutoBlock; "autostart": boolean; "dataDir": string; "firstRunDone": boolean; "hotkeys": Hotkeys; "pods": Array<Pod>; "theme": "system" | "light" | "dark"; "updateChannel": "stable" | "beta"; "version": string; };
+export type Settings = { "accessibility": Accessibility; "autoBlock": AutoBlock; "autostart": boolean; "dataDir": string; "firstRunDone": boolean; "hotkeys": Hotkeys; "pods": Array<Pod>; "theme": "system" | "light" | "dark"; "updateChannel": "stable" | "beta"; "updateSource": "github" | "ghproxy"; "version": string; };
+export type SourceProbe = { "error": string; "latencyMs": number; "reachable": boolean; "source": string; "speedKbps": number; };
+export type SourceProbeReport = { "probes": Array<SourceProbe>; };
 export type StagedItem = { "createdAt": number; "ext": string | null; "id": number; "kind": "file" | "folder" | "text" | "shortcut"; "name": string; "originalPath": string | null; "podId": number; "size": number; "stagingPath": string; };
 export type StagePathsResult = { "items": Array<StagedItem>; "warnings": Array<StageWarning>; };
 export type StageWarning = { "error": string; "name": string; };
 export type StealthChanged = { "hidden": boolean; };
 export type ThumbnailPayload = { "bytes": Array<number>; "mime": string; };
 export type UndoResult = { "failed": Array<string>; "operationId": number; "restored": number; };
-export type UpdateInfo = { "assetName": string; "notes": string; "prerelease": boolean; "releaseUrl": string; "version": string; };
+export type UpdateInfo = { "assetName": string; "notes": string; "prerelease": boolean; "releaseUrl": string; "version": string; "source": string; };
 export type UpdateProgress = { "received": number; "total": number; };
 export type VerifyIssue = { "actual": string | null; "expected": string; "path": string; };
 export type VerifyResult = { "checked": number; "issues": Array<VerifyIssue>; "valid": number; };
@@ -90,7 +92,7 @@ export interface CommandContract {
   "retry_operation": { args: { "operationId": number; }; result: { "kind": string; "operationId": number; "result": unknown; } };
   "reveal_staged_items": { args: { "itemIds": Array<number>; }; result: void };
   "safe_export_items": { args: { "destDir": string; "ids": Array<number>; }; result: { "completed": Array<CleanResult>; "failed": Array<string>; } };
-  "save_settings": { args: { "patch": { "accessibility"?: { "highContrast"?: boolean; "reduceMotion"?: boolean; "reduceTransparency"?: boolean; "scale"?: number; "sendToMenu"?: boolean; }; "autoBlock"?: { "apps"?: Array<string>; "enabled"?: boolean; }; "autostart"?: boolean; "dataDir"?: unknown; "firstRunDone"?: boolean; "hotkeys"?: { "collectClipboard"?: string; "lockSensitive"?: string; "openPanel"?: string; "toggleBar"?: string; }; "pods"?: unknown; "theme"?: "system" | "light" | "dark"; "updateChannel"?: "stable" | "beta"; "version"?: unknown; }; }; result: { "accessibility": Accessibility; "autoBlock": AutoBlock; "autostart": boolean; "dataDir": string; "firstRunDone": boolean; "hotkeys": Hotkeys; "pods": Array<Pod>; "theme": "system" | "light" | "dark"; "updateChannel": "stable" | "beta"; "version": string; } };
+  "save_settings": { args: { "patch": { "accessibility"?: { "highContrast"?: boolean; "reduceMotion"?: boolean; "reduceTransparency"?: boolean; "scale"?: number; "sendToMenu"?: boolean; }; "autoBlock"?: { "apps"?: Array<string>; "enabled"?: boolean; }; "autostart"?: boolean; "dataDir"?: unknown; "firstRunDone"?: boolean; "hotkeys"?: { "collectClipboard"?: string; "lockSensitive"?: string; "openPanel"?: string; "toggleBar"?: string; }; "pods"?: unknown; "theme"?: "system" | "light" | "dark"; "updateChannel"?: "stable" | "beta"; "updateSource"?: "github" | "ghproxy"; "version"?: unknown; }; }; result: { "accessibility": Accessibility; "autoBlock": AutoBlock; "autostart": boolean; "dataDir": string; "firstRunDone": boolean; "hotkeys": Hotkeys; "pods": Array<Pod>; "theme": "system" | "light" | "dark"; "updateChannel": "stable" | "beta"; "updateSource": "github" | "ghproxy"; "version": string; } };
   "scan_privacy": { args: { "ids": Array<number>; }; result: { "disclaimer": string; "duplicates": Array<Array<string>>; "files": Array<MetadataCheck>; "filesChecked": number; "filesFailed": number; "filesScanned": number; "filesSkipped": number; "issues": Array<PrivacyIssue>; } };
   "set_dragging_out": { args: { "dragging": boolean; "podId": number; }; result: void };
   "set_panel_mode": { args: { "mode": string; "podId": number; }; result: void };
@@ -107,9 +109,10 @@ export interface CommandContract {
   "verify_handoff": { args: { "directory": string; }; result: { "checked": number; "issues": Array<VerifyIssue>; "valid": number; } };
   "write_clipboard_text": { args: { "text": string; }; result: void };
   "cancel_update_download": { args: {  }; result: void };
-  "check_update": { args: { "channel": string; }; result: (UpdateInfo) | (null) };
-  "download_update": { args: { "version": string; }; result: void };
+  "check_update": { args: { "channel": string; "source": string; }; result: (UpdateInfo) | (null) };
+  "download_update": { args: { "source": string; "version": string; }; result: void };
   "install_update": { args: {  }; result: void };
+  "probe_update_source": { args: {  }; result: { "probes": Array<SourceProbe>; } };
 }
 
 export interface EventContract {
@@ -128,6 +131,6 @@ export interface EventContract {
   "floepod://pod-lock-changed": { "locked": boolean; "podId": number; };
   "floepod://pods-changed": void;
   "floepod://request-file-picker": { "podId": number; };
-  "floepod://settings-changed": { "accessibility": Accessibility; "autoBlock": AutoBlock; "autostart": boolean; "dataDir": string; "firstRunDone": boolean; "hotkeys": Hotkeys; "pods": Array<Pod>; "theme": "system" | "light" | "dark"; "updateChannel": "stable" | "beta"; "version": string; };
+  "floepod://settings-changed": { "accessibility": Accessibility; "autoBlock": AutoBlock; "autostart": boolean; "dataDir": string; "firstRunDone": boolean; "hotkeys": Hotkeys; "pods": Array<Pod>; "theme": "system" | "light" | "dark"; "updateChannel": "stable" | "beta"; "updateSource": "github" | "ghproxy"; "version": string; };
   "floepod://update-progress": { "received": number; "total": number; };
 }

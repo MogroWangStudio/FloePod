@@ -52,8 +52,8 @@ pub fn merge_persist(
         .ok_or_else(|| "设置补丁必须是对象".to_string())?;
     for (k, v) in obj {
         match k.as_str() {
-            "theme" | "firstRunDone" | "autostart" | "updateChannel" | "hotkeys" | "autoBlock"
-            | "accessibility" => {
+            "theme" | "firstRunDone" | "autostart" | "updateChannel" | "updateSource"
+            | "hotkeys" | "autoBlock" | "accessibility" => {
                 stored.insert(k.clone(), v.clone());
             }
             "version" | "dataDir" | "pods" => {}

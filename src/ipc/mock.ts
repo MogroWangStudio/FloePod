@@ -28,6 +28,7 @@ let settings: Settings = {
   firstRunDone: false,
   autostart: false,
   updateChannel: "stable",
+  updateSource: "github",
   hotkeys: { ...HOTKEY_DEFAULTS },
   autoBlock: { enabled: false, apps: [] },
   accessibility: {
@@ -220,13 +221,16 @@ function emitMockEvent(name: string, payload: unknown) {
 }
 
 /** mock 更新源：比 package.json 版本更高的一个假 beta 发布。 */
-const MOCK_UPDATE = {
-  version: "2.1.0-beta1",
-  prerelease: true,
-  notes: "更新向导演示：下载完成后会自动读秒重启并安装，可随时取消。",
-  releaseUrl: "https://github.com/MogroWang/FloePod/releases/tag/v2.1.0-beta1",
-  assetName: "FloePod-2.1.0-beta1-win-x64-portable.zip",
-};
+function mockUpdate(source: string) {
+  return {
+    version: "2.1.0-beta1",
+    prerelease: true,
+    notes: "更新向导演示：下载完成后会自动读秒重启并安装，可随时取消。",
+    releaseUrl: "https://github.com/MogroWang/FloePod/releases/tag/v2.1.0-beta1",
+    assetName: "FloePod-2.1.0-beta1-win-x64-portable.zip",
+    source,
+  };
+}
 
 function panelState(podId: number): PanelState {
   let state = panelStates.get(podId);
@@ -460,7 +464,7 @@ export async function mockInvoke<T>(
     case Commands.RestartApp:
       return result(undefined);
     case Commands.CheckUpdate:
-      return result(MOCK_UPDATE);
+      return result(mockUpdate(String(args?.source ?? "github")));
     case Commands.DownloadUpdate: {
       // 模拟 40MB 包体按 256KB 步进推送进度，节奏接近真实下载的前几秒
       const total = 40 * 1024 * 1024;
@@ -482,6 +486,16 @@ export async function mockInvoke<T>(
       return result(undefined);
     case Commands.InstallUpdate:
       return result(undefined);
+    case Commands.ProbeUpdateSource: {
+      // 模拟两来源并行测速：gh-proxy 在演示环境里更快，突出选择差异
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      return result({
+        probes: [
+          { source: "github", reachable: true, latencyMs: 380, speedKbps: 420, error: "" },
+          { source: "ghproxy", reachable: true, latencyMs: 210, speedKbps: 1180, error: "" },
+        ],
+      });
+    }
     case Commands.GetPodSecurityStatus: {
       const podId = Number(args?.podId);
       const sensitive = Boolean(settings.pods.find((pod) => pod.id === podId)?.security.enabled);

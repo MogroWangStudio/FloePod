@@ -31,6 +31,13 @@ export function formatSize(bytes: number): string {
   return `${n} ${units[i]}`;
 }
 
+/** 测速结果速度：KB/秒起展示，超过 1MB/s 自动换算。 */
+export function formatSpeed(speedKbps: number): string {
+  if (speedKbps <= 0) return "";
+  if (speedKbps >= 1024) return `${(speedKbps / 1024).toFixed(1)} MB/s`;
+  return `${Math.round(speedKbps)} KB/s`;
+}
+
 const two = (n: number) => n.toString().padStart(2, "0");
 
 export function formatTime(unixMs: number): string {

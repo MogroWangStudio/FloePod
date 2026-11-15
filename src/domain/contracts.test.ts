@@ -156,6 +156,7 @@ test("IPC 命令和事件名保持稳定且不重复", () => {
       "download_update",
       "cancel_update_download",
       "install_update",
+      "probe_update_source",
       "create_pod",
       "update_pod",
       "delete_pod",

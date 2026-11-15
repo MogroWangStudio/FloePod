@@ -29,6 +29,8 @@ import type {
   UndoResult,
   UpdateChannel,
   UpdateInfo,
+  UpdateSource,
+  SourceProbeReport,
   VerifyResult,
 } from "@/domain/types";
 import type { CommandContract } from "./generated";
@@ -63,15 +65,20 @@ export const ipc = {
   changeDataDir: (newPath: string): Promise<void> => invoke(Commands.ChangeDataDir, { newPath }),
   restartApp: (): Promise<void> => invoke(Commands.RestartApp),
 
-  /** 检查更新：stable 只收正式版，beta 额外接收 Pre-Release；已最新时返回 null。 */
-  checkUpdate: (channel: UpdateChannel): Promise<UpdateInfo | null> =>
-    invoke(Commands.CheckUpdate, { channel }),
-  /** 下载指定版本的更新包体；进度经 update-progress 事件推送。 */
-  downloadUpdate: (version: string): Promise<void> => invoke(Commands.DownloadUpdate, { version }),
+  /** 检查更新：stable 只收正式版，beta 额外接收 Pre-Release；已最新时返回 null。
+      ghproxy 来源时检查请求也走代理前缀。 */
+  checkUpdate: (channel: UpdateChannel, source: UpdateSource): Promise<UpdateInfo | null> =>
+    invoke(Commands.CheckUpdate, { channel, source }),
+  /** 下载指定版本的更新包体；ghproxy 来源时在包体直链前拼代理前缀。
+      进度经 update-progress 事件推送。 */
+  downloadUpdate: (version: string, source: UpdateSource): Promise<void> =>
+    invoke(Commands.DownloadUpdate, { version, source }),
   /** 取消进行中的下载。 */
   cancelUpdateDownload: (): Promise<void> => invoke(Commands.CancelUpdateDownload),
   /** 退出并安装已下载的更新：便携版直替改名，安装版静默重装。 */
   installUpdate: (): Promise<void> => invoke(Commands.InstallUpdate),
+  /** 测速两个下载来源（GitHub 直连 / gh-proxy）：各取 1MB 报告可用性与速度。 */
+  probeUpdateSource: (): Promise<SourceProbeReport> => invoke(Commands.ProbeUpdateSource),
 
   createPod: (config: Partial<Pod>, reuseExisting = false): Promise<Pod> =>
     invoke(Commands.CreatePod, { config, reuseExisting }),

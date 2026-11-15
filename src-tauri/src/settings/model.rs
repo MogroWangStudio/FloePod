@@ -270,6 +270,11 @@ pub struct Settings {
     #[serde(default = "d_update_channel")]
     #[schemars(extend("enum" = ["stable","beta"]))]
     pub update_channel: String,
+    /// 更新下载来源：github = GitHub 直连；ghproxy = gh-proxy 加速
+    /// （在下载链接前拼代理前缀）。
+    #[serde(default = "d_update_source")]
+    #[schemars(extend("enum" = ["github","ghproxy"]))]
+    pub update_source: String,
     #[serde(default = "Hotkeys::with_defaults")]
     pub hotkeys: Hotkeys,
     #[serde(default)]
@@ -292,6 +297,9 @@ fn d_theme() -> String {
 fn d_update_channel() -> String {
     "stable".into()
 }
+fn d_update_source() -> String {
+    "github".into()
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -300,6 +308,7 @@ impl Default for Settings {
             first_run_done: false,
             autostart: false,
             update_channel: d_update_channel(),
+            update_source: d_update_source(),
             hotkeys: Hotkeys::with_defaults(),
             auto_block: AutoBlock::default(),
             accessibility: Accessibility::default(),

@@ -6,7 +6,7 @@
  */
 import { computed, onBeforeUnmount, ref } from "vue";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { UpdateInfo } from "@/domain/types";
+import type { UpdateInfo, UpdateSource } from "@/domain/types";
 import { formatSize } from "@/lib/format";
 import { ipc } from "@/ipc/client";
 import { Events, listen } from "@/ipc/events";
@@ -62,7 +62,7 @@ function startDownload() {
   received.value = 0;
   total.value = 0;
   ipc
-    .downloadUpdate(props.info.version)
+    .downloadUpdate(props.info.version, props.info.source as UpdateSource)
     .then(() => {
       if (disposed) return;
       beginCountdown();

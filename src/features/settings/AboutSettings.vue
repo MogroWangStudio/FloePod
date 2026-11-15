@@ -5,8 +5,14 @@ import { open as openDirectory } from "@tauri-apps/plugin-dialog";
 import { useSettingsEditor } from "./context";
 import { UPDATE_CHANNELS } from "./options";
 import { ipc } from "@/ipc/client";
-import { formatSize } from "@/lib/format";
-import type { UpdateChannel, UpdateInfo } from "@/domain/types";
+import { formatSize, formatSpeed } from "@/lib/format";
+import type {
+  SourceProbe,
+  SourceProbeReport,
+  UpdateChannel,
+  UpdateInfo,
+  UpdateSource,
+} from "@/domain/types";
 import BrandMark from "@/components/BrandMark.vue";
 import SettingsRow from "@/components/SettingsRow.vue";
 import SegmentedControl from "@/components/SegmentedControl.vue";
@@ -33,7 +39,7 @@ async function checkUpdates() {
   if (checking.value || updateWizard.value) return;
   checking.value = true;
   try {
-    const info = await ipc.checkUpdate(s.value.updateChannel);
+    const info = await ipc.checkUpdate(s.value.updateChannel, s.value.updateSource);
     if (info) {
       updateWizard.value = info;
     } else {
@@ -52,6 +58,40 @@ const channelHint = computed(() =>
     ? "测试通道：正式版与测试版（Pre-Release）都会提示"
     : "稳定通道：只提示正式发布的版本",
 );
+
+/* 下载来源：GitHub 直连或 gh-proxy 加速（在下载链接前拼代理前缀）。 */
+const SOURCE_OPTIONS = [
+  { value: "github", label: "GitHub 直连" },
+  { value: "ghproxy", label: "GH-Proxy 加速" },
+] as const;
+
+function changeSource(event: Event) {
+  void save({ updateSource: (event.target as HTMLSelectElement).value as UpdateSource });
+}
+
+/* 下载测速：并行探测两个来源的可用性与速度，供选择参考。 */
+const probing = ref(false);
+const probeReport = ref<SourceProbeReport | null>(null);
+const PROBE_LABELS: Record<string, string> = { github: "直连", ghproxy: "代理" };
+
+async function probeSpeed() {
+  if (probing.value) return;
+  probing.value = true;
+  try {
+    probeReport.value = await ipc.probeUpdateSource();
+  } catch (error) {
+    console.error("probe update source failed", error);
+    showToast(`测速失败：${String(error)}`);
+  } finally {
+    probing.value = false;
+  }
+}
+
+function probeText(probe: SourceProbe): string {
+  if (!probe.reachable) return "不可用";
+  const speed = formatSpeed(probe.speedKbps);
+  return speed ? `${speed} · ${probe.latencyMs}ms` : `${probe.latencyMs}ms`;
+}
 
 /* 更改数据位置：选择新目录 → 复制数据 → 重启生效。 */
 const migrating = ref(false);
@@ -108,6 +148,32 @@ async function restartNow() {
           @update:model-value="(v) => save({ updateChannel: v as UpdateChannel })"
         />
       </SettingsRow>
+      <div class="sep" />
+      <SettingsRow label="下载来源" hint="检查更新与包体下载都经过此来源">
+        <select class="input" :value="s.updateSource" @change="changeSource">
+          <option v-for="option in SOURCE_OPTIONS" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </SettingsRow>
+      <div class="sep" />
+      <SettingsRow label="下载测速" hint="各取 1 MB 实测两个来源的可用性与速度">
+        <button type="button" class="btn" :disabled="probing" @click="probeSpeed">
+          {{ probing ? "测速中…" : "测速" }}
+        </button>
+      </SettingsRow>
+      <div v-if="probeReport" class="about-probe" role="status">
+        <span
+          v-for="probe in probeReport.probes"
+          :key="probe.source"
+          class="about-probe-item"
+          :class="{ bad: !probe.reachable }"
+        >
+          {{ PROBE_LABELS[probe.source] ?? probe.source }}
+          {{ probe.reachable ? "✓" : "✗" }}
+          {{ probeText(probe) }}
+        </span>
+      </div>
       <div class="sep" />
       <SettingsRow label="检查更新" hint="只在点击时联网查询 GitHub，其余时间保持离线">
         <button type="button" class="btn" :disabled="checking" @click="checkUpdates">

@@ -108,18 +108,31 @@ pub fn restart_app(app: AppHandle) {
 // ---- 应用内更新 ----
 
 /// 检查更新：查询 GitHub Releases 的 Atom 摘要源，按更新通道过滤
-/// （stable 只收正式版，beta 额外接收 Pre-Release）。已最新时返回 null。
+/// （stable 只收正式版，beta 额外接收 Pre-Release）；ghproxy 来源时
+/// 检查请求也走代理前缀。已最新时返回 null。
 #[tauri::command]
-pub async fn check_update(app: AppHandle, channel: String) -> Result<Option<update::UpdateInfo>, String> {
-    blocking(app.clone(), "检查更新", move || update::check(&channel)).await
+pub async fn check_update(
+    app: AppHandle,
+    channel: String,
+    source: String,
+) -> Result<Option<update::UpdateInfo>, String> {
+    blocking(app.clone(), "检查更新", move || {
+        update::check(&channel, &source)
+    })
+    .await
 }
 
-/// 下载更新包体到数据目录的 updates 子目录。进度经 update-progress 事件
-/// 推送；下载中的取消由 cancel_update_download 触发。
+/// 下载更新包体到数据目录的 updates 子目录；ghproxy 来源时在包体直链
+/// 前拼代理前缀。进度经 update-progress 事件推送，取消由
+/// cancel_update_download 触发。
 #[tauri::command]
-pub async fn download_update(app: AppHandle, version: String) -> Result<(), String> {
+pub async fn download_update(
+    app: AppHandle,
+    version: String,
+    source: String,
+) -> Result<(), String> {
     blocking(app.clone(), "下载更新", move || {
-        update::download(&app, &version)
+        update::download(&app, &version, &source)
     })
     .await
 }
@@ -135,6 +148,13 @@ pub fn cancel_update_download() {
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     blocking(app.clone(), "安装更新", move || update::install(&app)).await
+}
+
+/// 测速两个下载来源（GitHub 直连 / gh-proxy 代理）：并行各取 1MB，
+/// 报告可用性、延迟与速度，供「下载来源」选择参考。
+#[tauri::command]
+pub async fn probe_update_source(app: AppHandle) -> Result<update::SourceProbeReport, String> {
+    blocking(app.clone(), "测速下载来源", update::probe_sources).await
 }
 
 // Windows 上创建窗口必须使用异步 Tauri 命令，同步命令可能与 UI 消息循环死锁。

@@ -64,5 +64,6 @@ export const Commands = {
   CheckUpdate: "check_update",
   DownloadUpdate: "download_update",
   InstallUpdate: "install_update",
+  ProbeUpdateSource: "probe_update_source",
 } as const;
 export type CommandName = typeof Commands[keyof typeof Commands];

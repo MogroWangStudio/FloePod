@@ -25,6 +25,11 @@ use crate::events::UPDATE_PROGRESS;
 const ATOM_URL: &str = "https://github.com/MogroWang/FloePod/releases.atom";
 /// 产物下载前缀；tag 带 v 前缀，文件名不带。
 const RELEASE_ASSET_PREFIX: &str = "https://github.com/MogroWang/FloePod/releases/download";
+/// gh-proxy 加速前缀：按官方指南在完整 GitHub URL 前拼接代理域名。
+const GH_PROXY_PREFIX: &str = "https://gh-proxy.org/";
+/// 测速目标：本仓库 main 分支源码 zip（约 1–2 MB，与真实包体同走
+/// Releases/Archive CDN，能反映实际下载速度）。
+const SPEED_TEST_URL: &str = "https://github.com/MogroWang/FloePod/archive/refs/heads/main.zip";
 /// 发布说明纯文本的截断长度：向导里只做摘要，全文在 Release 页。
 const NOTES_MAX_CHARS: usize = 3000;
 
@@ -51,7 +56,7 @@ fn running_in_msix() -> bool {
     std::env::var_os("PACKAGE_FULL_NAME").is_some_and(|value| !value.is_empty())
 }
 
-/// 一次可用的应用更新：按当前安装形态选好了包体与下载地址。
+/// 一次可用的应用更新：按当前安装形态与下载来源选好了包体与下载地址。
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
@@ -65,6 +70,8 @@ pub struct UpdateInfo {
     pub release_url: String,
     /// 按当前安装形态选择的包体文件名。
     pub asset_name: String,
+    /// 本次检查使用的下载来源：github / ghproxy。向导按它下载。
+    pub source: String,
 }
 
 /// 下载进度。total 为 0 表示服务器未提供长度（此时只展示已收字节）。
@@ -92,6 +99,15 @@ fn asset_name(kind: InstallKind, version: &str) -> String {
     match kind {
         InstallKind::Portable => format!("FloePod-{version}-win-x64-portable.zip"),
         InstallKind::Installer => format!("FloePod_{version}_x64-setup.exe"),
+    }
+}
+
+/// 按下载来源处理直链：ghproxy 来源时在完整 GitHub URL 前拼代理前缀
+/// （https://gh-proxy.org/<原始链接>），其余来源原样返回。
+fn mirror_url(url: &str, source: &str) -> String {
+    match source.trim() {
+        "ghproxy" => format!("{GH_PROXY_PREFIX}{url}"),
+        _ => url.to_string(),
     }
 }
 
@@ -289,8 +305,8 @@ fn html_to_text(html: &str, max_chars: usize) -> String {
 
 // ---- 检查更新 ----
 
-pub fn check(channel: &str) -> Result<Option<UpdateInfo>, String> {
-    let body = http_get(ATOM_URL, Duration::from_secs(20))?;
+pub fn check(channel: &str, source: &str) -> Result<Option<UpdateInfo>, String> {
+    let body = http_get(&mirror_url(ATOM_URL, source), Duration::from_secs(20))?;
     let current = Version::parse(env!("CARGO_PKG_VERSION"))
         .map_err(|error| format!("当前版本号无效: {error}"))?;
     let mut best: Option<(Version, FeedEntry)> = None;
@@ -316,6 +332,7 @@ pub fn check(channel: &str) -> Result<Option<UpdateInfo>, String> {
         prerelease: entry.tag.contains('-'),
         release_url: entry.url,
         version: clean_version,
+        source: source.trim().to_string(),
     }))
 }
 
@@ -340,16 +357,16 @@ pub fn cancel_download() {
     CANCEL.store(true, Ordering::SeqCst);
 }
 
-pub fn download(app: &AppHandle, version: &str) -> Result<(), String> {
+pub fn download(app: &AppHandle, version: &str, source: &str) -> Result<(), String> {
     if DOWNLOADING.swap(true, Ordering::SeqCst) {
         return Err("已有下载在进行".into());
     }
-    let result = download_inner(app, version);
+    let result = download_inner(app, version, source);
     DOWNLOADING.store(false, Ordering::SeqCst);
     result
 }
 
-fn download_inner(app: &AppHandle, version: &str) -> Result<(), String> {
+fn download_inner(app: &AppHandle, version: &str, source: &str) -> Result<(), String> {
     CANCEL.store(false, Ordering::SeqCst);
     let version = version.trim().trim_start_matches(['v', 'V']).to_string();
     // 只接受能被解析为语义化版本的版本号：包体 URL 由后端规则拼出，
@@ -360,7 +377,7 @@ fn download_inner(app: &AppHandle, version: &str) -> Result<(), String> {
         return Err("MSIX 侧载包由系统管理，请到 Release 页手动下载新版".into());
     }
     let asset = asset_name(kind, &version);
-    let url = format!("{RELEASE_ASSET_PREFIX}/v{version}/{asset}");
+    let url = mirror_url(&format!("{RELEASE_ASSET_PREFIX}/v{version}/{asset}"), source);
     let updates_dir = app.state::<crate::state::AppState>().data_dir.join("updates");
     std::fs::create_dir_all(&updates_dir).map_err(|error| format!("无法准备更新目录: {error}"))?;
     // 更新目录只服务于一次下载会话：清掉旧残留，避免半截 .part 冒充新包
@@ -591,6 +608,112 @@ pub fn install(app: &AppHandle) -> Result<(), String> {
     spawn_relay_script(&script)?;
     app.exit(0);
     Ok(())
+}
+
+// ---- 下载来源测速 ----
+
+/// 单个下载来源的测速结果。
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceProbe {
+    /// 来源标识：github / ghproxy。
+    pub source: String,
+    /// 能否连通并读到数据。
+    pub reachable: bool,
+    /// 发出请求到收到响应头的耗时（毫秒）。
+    pub latency_ms: u64,
+    /// 平均速度（KB/秒，按实际读到的字节计算）。
+    pub speed_kbps: u64,
+    /// 失败原因（成功时为空）。
+    pub error: String,
+}
+
+/// 两个下载来源的测速报告。
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceProbeReport {
+    /// 各来源结果，顺序固定为 github、ghproxy。
+    pub probes: Vec<SourceProbe>,
+}
+
+/// 对一个来源发起受限下载测速：RANGE 取前 1MB，最多读 5 秒，手头读到
+/// 多少算多少——量速不需要读完整段，但要能反映持续吞吐。
+fn probe_one(source: &str) -> SourceProbe {
+    const MAX_PROBE_BYTES: u64 = 1024 * 1024;
+    const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+    let failed = |error: String| SourceProbe {
+        source: source.to_string(),
+        reachable: false,
+        latency_ms: 0,
+        speed_kbps: 0,
+        error,
+    };
+    let client = match reqwest::blocking::Client::builder()
+        .user_agent(format!("FloePod/{}", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => return failed(format!("网络初始化失败: {error}")),
+    };
+    let started = std::time::Instant::now();
+    let mut response = match client
+        .get(mirror_url(SPEED_TEST_URL, source))
+        .header(reqwest::header::RANGE, "bytes=0-1048575")
+        .send()
+    {
+        Ok(response) => response,
+        Err(error) => return failed(format!("无法连接: {error}")),
+    };
+    let latency_ms = started.elapsed().as_millis() as u64;
+    if !response.status().is_success() {
+        return failed(format!("HTTP {}", response.status()));
+    }
+    let mut bytes: u64 = 0;
+    let mut buffer = [0u8; 32 * 1024];
+    loop {
+        if bytes >= MAX_PROBE_BYTES || std::time::Instant::now() >= started + PROBE_TIMEOUT {
+            break;
+        }
+        match response.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => bytes += count as u64,
+            Err(error) => return failed(format!("读取中断: {error}")),
+        }
+    }
+    let elapsed_ms = started.elapsed().as_millis().max(1) as u64;
+    SourceProbe {
+        source: source.to_string(),
+        reachable: bytes > 0,
+        latency_ms,
+        speed_kbps: ((bytes as f64) / 1024.0 / (elapsed_ms as f64 / 1000.0)) as u64,
+        error: String::new(),
+    }
+}
+
+/// 并行探测两个下载来源，报告可用性与速度，供「下载来源」选择参考。
+pub fn probe_sources() -> Result<SourceProbeReport, String> {
+    let probes = std::thread::scope(|scope| {
+        let handles: Vec<_> = ["github", "ghproxy"]
+            .iter()
+            .copied()
+            .map(|source| scope.spawn(move || probe_one(source)))
+            .collect();
+        handles
+            .into_iter()
+            .zip(["github", "ghproxy"])
+            .map(|(handle, source)| {
+                handle.join().unwrap_or_else(|_| SourceProbe {
+                    source: source.to_string(),
+                    reachable: false,
+                    latency_ms: 0,
+                    speed_kbps: 0,
+                    error: "测速线程异常终止".into(),
+                })
+            })
+            .collect::<Vec<_>>()
+    });
+    Ok(SourceProbeReport { probes })
 }
 
 #[cfg(test)]
