@@ -6,12 +6,13 @@
 
 ### 修复
 
+- **发布工作流第一步创建标签被拒（403）**：三段式重构时 `ensureTag`（创建标签需要 `contents:write`）被挪进了只有读权限的第一步，`POST /git/refs` 直接 403。结构性修复：标签改由第三步（持有写权限的发布 job）创建，第一步只做只读归属校验（`verifyTagOwnership`）——构建或打包失败的 run 从此不再占用标签，修复后同版本号即可重新发布，本轮无需升版本号
 - **Release 流水线在打包步骤失败**：`bundle-windows.ps1` 里新加的预发布提示 `Write-Output "Pre-release $version: …"` 是无效的 PowerShell 语法——双引号内 `$version:` 的冒号被当作作用域分隔符，脚本在解析阶段就报 ParserError（`Build executable` 本身已成功，Rust 编译通过）。改为 `${version}` 显式定界。前一轮 `paths.rs` 的 `is_portable` 类型不匹配已由这次 run 证实修复
 - **发布工作流重构为三段式**：`release.yml` 拆为三个串行 job，步骤名统一中文——「第一步 · 确定发布类型与标签」（验证来源、判定正式/预发布、幂等门控、创建标签）→「第二步 · 构建可执行文件」（构建、打包、签名、产物校验，产物经 artifact 传递）→「第三步 · 发布」（下载产物、来源证明与 attestation、创建并发布 Release、核对上传摘要）。已发布的版本在第一步即标记跳过，后两个 job 不再启动；签名证书只在构建 job 内短暂存在，发布 job 持有 contents/id-token/attestations 写权限。`release-state.mjs --prepare` 相应输出 `channel`（stable/beta）
 - **Release 流水线构建失败（第三次，最后一处）**：`paths.rs` 的 `is_portable` 把接收 `&Path` 的 `portable_requested` 直接传给 `Option<PathBuf>::is_some_and`（要求按值参数），E0631 类型不匹配——前两轮只在 stub 里验证了 update.rs，paths.rs 被 stub 掉成了盲区。改为闭包包装 `|directory| portable_requested(&directory)`，并把该函数原文纳入 stub 检查工程复验。CI 日志确认这是 crate 唯一的编译错误
 - **Release 流水线构建失败（第二次）**：前一次修复后仍有两处问题——`reqwest::blocking` 的 feature 缺失是第一处；本项修复后又发现 Atom 解析拿不到完整发布说明：quick-xml 0.41 的 Reader 会把 Text 事件里解码出的 `<`/`>` 重新当作标记分词（`&lt;p&gt;` 变成独立的 Start/End 事件加一个 "p" 文本），content 的 HTML 在事件层已被拆坏。改为按 GitHub 生成的稳定标记直接扫描 `<entry>` 边界、`link href` 与 `content` 原始文本，统一用 `quick_xml::escape::unescape` 解码一次；`link href` 的读取也顺手从已废弃的 `unescape_value` 换成 `normalized_value`。stub 工程（真实 quick-xml/semver/zip/serde 依赖）下 9 项单元测试与类型检查全部通过
 - **Release 流水线构建失败**：`reqwest` 依赖只启用了 `rustls-tls`，而应用内更新的检查、下载与测速全部使用 `reqwest::blocking` 客户端，`cargo check` 直接报 `could not find blocking in reqwest`，推送 main 后自动发布在 "Build executable" 一步失败。现在启用 `blocking` feature（传递依赖已在依赖树内，lockfile 无新增条目）
-- **更新源指向旧仓库路径**：仓库实际托管在 `MogroWangStudio/FloePod`，而更新检查的 Atom 源、包体下载前缀与测速目标都硬编码为 `MogroWang/FloePod`——即使构建通过，检查更新也会 404。三处常量与演示 mock 的发布页链接一并改为 `MogroWangStudio/FloePod`。失败的 run 已把 tag `v2.0.0-beta1` 创建在旧提交上，本版本号随之升为 2.0.0-beta2（beta1 从未成功发布）；beta2、beta3、beta4 的 tag 先后被失败 run 占用，最终版本号为 2.0.0-beta5
+- **更新源指向旧仓库路径**：仓库实际托管在 `MogroWangStudio/FloePod`，而更新检查的 Atom 源、包体下载前缀与测速目标都硬编码为 `MogroWang/FloePod`——即使构建通过，检查更新也会 404。三处常量与演示 mock 的发布页链接一并改为 `MogroWangStudio/FloePod`。失败的 run 已把 tag `v2.0.0-beta1` 创建在旧提交上，本版本号随之升为 2.0.0-beta2（beta1 从未成功发布）；beta2、beta3、beta4 的 tag 先后被失败 run 占用（标签在构建前创建的旧设计所致）；标签改由发布阶段创建后，同版本号即可重新发布
 
 ### 新增
 

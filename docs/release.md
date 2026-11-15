@@ -26,9 +26,9 @@ CI 在 PR opened/synchronize/reopened/ready_for_review 和 merge_group checks_re
 
 `release.yml` 由 `push` 到默认分支（外加手动 `workflow_dispatch` 用于重发）触发，分为三个串行 job（步骤名均为中文）：
 
-1. **确定发布类型与标签**（ubuntu）：验证发布来源为默认分支 HEAD，读取版本判定发布类型（纯数字 → 正式 Release，`x.y.z-beta<N>` → Pre-Release，输出为 `channel`），做幂等门控并创建标签；已发布版本在此直接标记 `published`，后续 job 跳过。
+1. **确定发布类型与标签**（ubuntu，只读权限）：验证发布来源为默认分支 HEAD，读取版本判定发布类型（纯数字 → 正式 Release，`x.y.z-beta<N>` → Pre-Release，输出为 `channel`），做幂等门控（标签若已存在必须指向同一提交）；已发布版本在此直接标记 `published`，后续 job 跳过。标签的实际创建放在第三步（`contents:write`）——构建或打包失败的 run 不再占用标签，修复后同版本号即可重新发布。
 2. **构建可执行文件**（windows）：构建、打包（预发布跳过 MSI/MSIX）、签名、产物校验，产物经 artifact 传给发布 job。
-3. **发布**（ubuntu）：下载产物，生成来源证明与 attestation，创建并发布 Release、核对上传摘要。旧的「合并通知 → `workflow_run`」两阶段链已移除：push 事件只有具备仓库写权限的账号才能在上游触发，fork 无法伪装，间接身份验证不再必要。
+3. **发布**（ubuntu，`contents:write` + `id-token:write` + `attestations:write`）：下载产物，创建标签，生成来源证明与 attestation，创建并发布 Release、核对上传摘要。旧的「合并通知 → `workflow_run`」两阶段链已移除：push 事件只有具备仓库写权限的账号才能在上游触发，fork 无法伪装，间接身份验证不再必要。
 
 只读 resolve job 从本次 workflow 的不可变定义加载校验器（`scripts/release-identity.mjs`），把默认分支当前 HEAD 确定为发布源并输出其 SHA；构建源码始终 checkout 该 SHA，不使用 run 的 `github.sha` 推断。排队期间 HEAD 前进时按最新 HEAD 发布：版本号在 checkout 后由 `release-state.mjs` 重新读取并做幂等门控，已发布版本不会被重复构建或覆盖。
 

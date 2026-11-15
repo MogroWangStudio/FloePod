@@ -57,6 +57,12 @@ test("release publishes on push to the default branch without the merge notifica
   // 已发布版本（published=true）时后两个 job 直接跳过。
   assert.match(release.jobs.build.if, /published != 'true'/);
   assert.match(release.jobs.publish.if, /published != 'true'/);
+  // 第一步只有读权限：标签由发布阶段（contents:write）创建，构建失败的
+  // run 不再占用标签。
+  assert.deepEqual(release.jobs.prepare.permissions, { contents: "read" });
+  const prepareRuns = (release.jobs.prepare.steps ?? []).map((step) => step.run ?? "").join("\n");
+  assert.match(prepareRuns, /release-state\.mjs --prepare/);
+  assert.doesNotMatch(prepareRuns, /--publish/);
   // 构建产物经 artifact 传给发布 job，发布 job 有 OIDC 与 attest 权限。
   assert.deepEqual(release.jobs.publish.permissions, {
     contents: "write",

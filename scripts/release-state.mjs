@@ -75,16 +75,20 @@ async function verifyPublished(api, release, sha, version) {
   await verifyRemote(api, release, expected);
 }
 export async function ensureTag(api, tag, sha) {
-  const ref = await api(`/git/ref/tags/${tag}`, { missing: true });
-  if (ref) {
-    let object = ref.object;
-    for (let depth = 0; object.type === "tag" && depth < 8; depth++)
-      object = (await api(`/git/tags/${object.sha}`)).object;
-    if (object.type !== "commit" || object.sha !== sha)
-      throw Error(`Tag ${tag} is already owned by another commit`);
-    return;
-  }
+  await verifyTagOwnership(api, tag, sha);
   await api("/git/refs", { method: "POST", body: { ref: `refs/tags/${tag}`, sha } });
+}
+// 只读校验：标签已存在时必须指向同一提交（幂等门控），不产生写操作。
+// 标签的实际创建放在有 contents:write 的发布阶段——构建失败的 run 不再
+// 占用标签，修复后同版本号即可重新发布。
+export async function verifyTagOwnership(api, tag, sha) {
+  const ref = await api(`/git/ref/tags/${tag}`, { missing: true });
+  if (!ref) return;
+  let object = ref.object;
+  for (let depth = 0; object.type === "tag" && depth < 8; depth++)
+    object = (await api(`/git/tags/${object.sha}`)).object;
+  if (object.type !== "commit" || object.sha !== sha)
+    throw Error(`Tag ${tag} is already owned by another commit`);
 }
 async function main() {
   const api = githubApi(),
@@ -99,7 +103,7 @@ async function main() {
   const release = await api(`/releases/tags/${tag}`, { missing: true });
   if (release) validateRelease(release, tag, sha);
   if (process.argv.includes("--prepare")) {
-    await ensureTag(api, tag, sha);
+    await verifyTagOwnership(api, tag, sha);
     if (release && !release.draft) await verifyPublished(api, release, sha, version);
     output({
       version,
