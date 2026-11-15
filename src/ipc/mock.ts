@@ -226,7 +226,7 @@ function mockUpdate(source: string) {
     version: "2.1.0-beta1",
     prerelease: true,
     notes: "更新向导演示：下载完成后会自动读秒重启并安装，可随时取消。",
-    releaseUrl: "https://github.com/MogroWang/FloePod/releases/tag/v2.1.0-beta1",
+    releaseUrl: "https://github.com/MogroWangStudio/FloePod/releases/tag/v2.1.0-beta1",
     assetName: "FloePod-2.1.0-beta1-win-x64-portable.zip",
     source,
   };

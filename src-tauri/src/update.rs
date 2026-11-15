@@ -22,14 +22,14 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::events::UPDATE_PROGRESS;
 
-const ATOM_URL: &str = "https://github.com/MogroWang/FloePod/releases.atom";
+const ATOM_URL: &str = "https://github.com/MogroWangStudio/FloePod/releases.atom";
 /// 产物下载前缀；tag 带 v 前缀，文件名不带。
-const RELEASE_ASSET_PREFIX: &str = "https://github.com/MogroWang/FloePod/releases/download";
+const RELEASE_ASSET_PREFIX: &str = "https://github.com/MogroWangStudio/FloePod/releases/download";
 /// gh-proxy 加速前缀：按官方指南在完整 GitHub URL 前拼接代理域名。
 const GH_PROXY_PREFIX: &str = "https://gh-proxy.org/";
 /// 测速目标：本仓库 main 分支源码 zip（约 1–2 MB，与真实包体同走
 /// Releases/Archive CDN，能反映实际下载速度）。
-const SPEED_TEST_URL: &str = "https://github.com/MogroWang/FloePod/archive/refs/heads/main.zip";
+const SPEED_TEST_URL: &str = "https://github.com/MogroWangStudio/FloePod/archive/refs/heads/main.zip";
 /// 发布说明纯文本的截断长度：向导里只做摘要，全文在 Release 页。
 const NOTES_MAX_CHARS: usize = 3000;
 
@@ -776,13 +776,13 @@ mod tests {
 <feed xmlns="http://www.w3.org/2005/Atom">
   <entry>
     <id>tag:github.com,2008:Repository/1/v2.0.0-beta1</id>
-    <link rel="alternate" type="text/html" href="https://github.com/MogroWang/FloePod/releases/tag/v2.0.0-beta1"/>
+    <link rel="alternate" type="text/html" href="https://github.com/MogroWangStudio/FloePod/releases/tag/v2.0.0-beta1"/>
     <title>FloePod 2.0.0-beta1</title>
     <content type="html">&lt;p&gt;双通道 &amp;amp; 自动安装&lt;/p&gt;</content>
   </entry>
   <entry>
     <id>tag:github.com,2008:Repository/1/v2.0.0</id>
-    <link rel="alternate" type="text/html" href="https://github.com/MogroWang/FloePod/releases/tag/v2.0.0"/>
+    <link rel="alternate" type="text/html" href="https://github.com/MogroWangStudio/FloePod/releases/tag/v2.0.0"/>
     <content type="html">&lt;p&gt;正式版&lt;/p&gt;</content>
   </entry>
 </feed>"#;

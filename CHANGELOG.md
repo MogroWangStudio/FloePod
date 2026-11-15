@@ -2,7 +2,12 @@
 
 记录每个版本的显著变更，最新版本在最上面。
 
-## 2.0.0-beta1（当前）
+## 2.0.0-beta2（当前）
+
+### 修复
+
+- **Release 流水线构建失败**：`reqwest` 依赖只启用了 `rustls-tls`，而应用内更新的检查、下载与测速全部使用 `reqwest::blocking` 客户端，`cargo check` 直接报 `could not find blocking in reqwest`，推送 main 后自动发布在 "Build executable" 一步失败。现在启用 `blocking` feature（传递依赖已在依赖树内，lockfile 无新增条目）
+- **更新源指向旧仓库路径**：仓库实际托管在 `MogroWangStudio/FloePod`，而更新检查的 Atom 源、包体下载前缀与测速目标都硬编码为 `MogroWang/FloePod`——即使构建通过，检查更新也会 404。三处常量与演示 mock 的发布页链接一并改为 `MogroWangStudio/FloePod`。失败的 run 已把 tag `v2.0.0-beta1` 创建在旧提交上，本版本号随之升为 2.0.0-beta2（beta1 从未成功发布）
 
 ### 新增
 
