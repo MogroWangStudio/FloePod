@@ -10,7 +10,6 @@
 //! 稳定通道只接收正式版；测试通道接收 Pre-Release 与正式版中更新的那个。
 
 use base64::Engine as _;
-use quick_xml::events::Event as XmlEvent;
 use semver::Version;
 use serde::Serialize;
 use std::io::{Read as _, Write as _};
@@ -18,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use crate::events::UPDATE_PROGRESS;
 
@@ -135,83 +134,77 @@ struct FeedEntry {
 }
 
 /// 解析 releases.atom 的 entry 列表：只需要发布页链接（内含 tag）与说明。
+///
+/// 不走 Text 事件解析 content——quick-xml 0.41 会把转义后出现的 `<`/`>`
+/// 重新当作标记分词（`&lt;p&gt;` 变成独立的 Start/End 事件），拿不到完整
+/// HTML。GitHub 生成的 Atom 格式稳定，直接按已知标记扫描更可靠。
 fn parse_atom(body: &str) -> Result<Vec<FeedEntry>, String> {
-    let mut reader = quick_xml::Reader::from_str(body);
-    reader.config_mut().trim_text(true);
     let mut entries = Vec::new();
-    let mut in_entry = false;
-    let mut in_content = false;
-    let mut href: Option<String> = None;
-    let mut notes = String::new();
-    let mut buffer = Vec::new();
-    loop {
-        buffer.clear();
-        match reader.read_event_into(&mut buffer) {
-            Ok(XmlEvent::Start(element)) => match element.name().as_ref() {
-                b"entry" => {
-                    in_entry = true;
-                    href = None;
-                    notes.clear();
-                }
-                b"content" if in_entry => in_content = true,
-                b"link" if in_entry => {
-                    if let Some(value) = link_href(&element)? {
-                        href = Some(value);
-                    }
-                }
-                _ => {}
-            },
-            Ok(XmlEvent::Empty(element)) => {
-                if element.name().as_ref() == b"link" && in_entry {
-                    if let Some(value) = link_href(&element)? {
-                        href = Some(value);
-                    }
-                }
-            }
-            Ok(XmlEvent::Text(text)) if in_content => {
-                let raw = String::from_utf8_lossy(&text);
-                let decoded = quick_xml::escape::unescape(&raw)
-                    .map_err(|error| format!("更新源内容转义无效: {error}"))?;
-                notes.push_str(&decoded);
-            }
-            Ok(XmlEvent::End(element)) => match element.name().as_ref() {
-                b"entry" => {
-                    in_entry = false;
-                    if let Some(url) = href.take() {
-                        // 发布页形如 .../releases/tag/v2.0.0-beta1，tag 即末段
-                        if let Some(tag) = url.split("/releases/tag/").nth(1) {
-                            entries.push(FeedEntry {
-                                tag: tag.to_string(),
-                                url,
-                                notes_html: std::mem::take(&mut notes),
-                            });
-                        }
-                    }
-                }
-                b"content" => in_content = false,
-                _ => {}
-            },
-            Ok(XmlEvent::Eof) => break,
-            Ok(_) => {}
-            Err(error) => return Err(format!("解析更新源失败: {error}")),
-        }
+    let mut rest = body;
+    while let Some(start) = rest.find("<entry>") {
+        let end = rest[start..]
+            .find("</entry>")
+            .ok_or_else(|| "更新源的 entry 未闭合".to_string())?
+            + start;
+        let entry = &rest[start..end];
+        rest = &rest[end + "</entry>".len()..];
+        // 没有发布页链接（拿不到 tag）的条目与检查无关，直接跳过
+        let Some(url) = link_href(entry)? else {
+            continue;
+        };
+        let Some(tag) = url.split("/releases/tag/").nth(1) else {
+            continue;
+        };
+        entries.push(FeedEntry {
+            tag: tag.to_string(),
+            url,
+            notes_html: content_html(entry)?,
+        });
     }
     Ok(entries)
 }
 
-fn link_href(element: &quick_xml::events::BytesStart<'_>) -> Result<Option<String>, String> {
-    let attribute = element
-        .try_get_attribute("href")
-        .map_err(|error| format!("更新源属性无效: {error}"))?;
-    match attribute {
-        Some(attribute) => Ok(Some(
-            attribute
-                .unescape_value()
-                .map_err(|error| format!("更新源属性转义无效: {error}"))?
-                .into_owned(),
-        )),
-        None => Ok(None),
-    }
+/// 提取 entry 里发布页链接（`<link ... href="..."/>`）。缺失时返回 None，
+/// 由调用方跳过（GitHub 偶尔会为非发布事件生成条目）。
+fn link_href(entry: &str) -> Result<Option<String>, String> {
+    let Some(link_start) = entry.find("<link ") else {
+        return Ok(None);
+    };
+    let tag = &entry[link_start..];
+    let Some(tag_end) = tag.find("/>") else {
+        return Err("更新源的 link 未闭合".to_string());
+    };
+    let tag = &tag[..tag_end];
+    const HREF: &str = " href=\"";
+    let Some(position) = tag.find(HREF) else {
+        return Ok(None);
+    };
+    let value = &tag[position + HREF.len()..];
+    let Some(close) = value.find('"') else {
+        return Err("更新源的 link href 未闭合".to_string());
+    };
+    let decoded = quick_xml::escape::unescape(&value[..close])
+        .map_err(|error| format!("更新源属性转义无效: {error}"))?;
+    Ok(Some(decoded.into_owned()))
+}
+
+/// 提取 entry 里 `<content ...>` 与 `</content>` 之间的原始转义 HTML，
+/// 统一解码一次得到 HTML 文本。没有 content（如仅 tag 的条目）返回空串。
+fn content_html(entry: &str) -> Result<String, String> {
+    let Some(open) = entry.find("<content") else {
+        return Ok(String::new());
+    };
+    let after = &entry[open..];
+    let Some(gt) = after.find('>') else {
+        return Err("更新源的 content 未闭合".to_string());
+    };
+    let body = &after[gt + 1..];
+    let Some(close) = body.find("</content>") else {
+        return Err("更新源的 content 未闭合".to_string());
+    };
+    let decoded = quick_xml::escape::unescape(&body[..close])
+        .map_err(|error| format!("更新源内容转义无效: {error}"))?;
+    Ok(decoded.into_owned())
 }
 
 /// 发布说明 HTML 转纯文本：块级标签转换行、剥掉其余标签、还原常见实体、
@@ -321,7 +314,7 @@ pub fn check(channel: &str, source: &str) -> Result<Option<UpdateInfo>, String> 
             best = Some((version, entry));
         }
     }
-    let Some((version, entry)) = best else {
+    let Some((_, entry)) = best else {
         return Ok(None);
     };
     let clean_version = entry.tag.trim_start_matches(['v', 'V']).to_string();
@@ -791,5 +784,27 @@ mod tests {
         assert_eq!(entries[0].tag, "v2.0.0-beta1");
         assert_eq!(entries[0].notes_html, "<p>双通道 &amp; 自动安装</p>");
         assert_eq!(entries[1].tag, "v2.0.0");
+        // content 被解码一次后即得到 HTML：html_to_text 再剥一层标签
+        assert_eq!(html_to_text(&entries[1].notes_html, 100), "正式版");
     }
+
+    #[test]
+    fn atom_entries_without_link_are_skipped_and_missing_content_yields_empty() {
+        let body = r#"<feed>
+  <entry>
+    <id>tag:github.com,2008:Repository/1/only-id</id>
+    <title>没有链接：与发布检查无关，跳过</title>
+  </entry>
+  <entry>
+    <id>tag:github.com,2008:Repository/1/v2.1.0</id>
+    <link rel="alternate" type="text/html" href="https://github.com/MogroWangStudio/FloePod/releases/tag/v2.1.0"/>
+    <title>有链接但没有说明</title>
+  </entry>
+</feed>"#;
+        let entries = parse_atom(body).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].tag, "v2.1.0");
+        assert_eq!(entries[0].notes_html, "");
+    }
+
 }

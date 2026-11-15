@@ -2,12 +2,13 @@
 
 记录每个版本的显著变更，最新版本在最上面。
 
-## 2.0.0-beta2（当前）
+## 2.0.0-beta3（当前）
 
 ### 修复
 
+- **Release 流水线构建失败（第二次）**：前一次修复后仍有两处问题——`reqwest::blocking` 的 feature 缺失是第一处；本项修复后又发现 Atom 解析拿不到完整发布说明：quick-xml 0.41 的 Reader 会把 Text 事件里解码出的 `<`/`>` 重新当作标记分词（`&lt;p&gt;` 变成独立的 Start/End 事件加一个 "p" 文本），content 的 HTML 在事件层已被拆坏。改为按 GitHub 生成的稳定标记直接扫描 `<entry>` 边界、`link href` 与 `content` 原始文本，统一用 `quick_xml::escape::unescape` 解码一次；`link href` 的读取也顺手从已废弃的 `unescape_value` 换成 `normalized_value`。stub 工程（真实 quick-xml/semver/zip/serde 依赖）下 9 项单元测试与类型检查全部通过
 - **Release 流水线构建失败**：`reqwest` 依赖只启用了 `rustls-tls`，而应用内更新的检查、下载与测速全部使用 `reqwest::blocking` 客户端，`cargo check` 直接报 `could not find blocking in reqwest`，推送 main 后自动发布在 "Build executable" 一步失败。现在启用 `blocking` feature（传递依赖已在依赖树内，lockfile 无新增条目）
-- **更新源指向旧仓库路径**：仓库实际托管在 `MogroWangStudio/FloePod`，而更新检查的 Atom 源、包体下载前缀与测速目标都硬编码为 `MogroWang/FloePod`——即使构建通过，检查更新也会 404。三处常量与演示 mock 的发布页链接一并改为 `MogroWangStudio/FloePod`。失败的 run 已把 tag `v2.0.0-beta1` 创建在旧提交上，本版本号随之升为 2.0.0-beta2（beta1 从未成功发布）
+- **更新源指向旧仓库路径**：仓库实际托管在 `MogroWangStudio/FloePod`，而更新检查的 Atom 源、包体下载前缀与测速目标都硬编码为 `MogroWang/FloePod`——即使构建通过，检查更新也会 404。三处常量与演示 mock 的发布页链接一并改为 `MogroWangStudio/FloePod`。失败的 run 已把 tag `v2.0.0-beta1` 创建在旧提交上，本版本号随之升为 2.0.0-beta2（beta1 从未成功发布）；beta2 的 tag 同样被第二次失败 run 占用，最终版本号为 2.0.0-beta3
 
 ### 新增
 
