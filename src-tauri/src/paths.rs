@@ -23,7 +23,7 @@ pub fn is_portable() -> bool {
         std::env::current_exe()
             .ok()
             .and_then(|executable| executable.parent().map(Path::to_path_buf))
-            .is_some_and(portable_requested)
+            .is_some_and(|directory| portable_requested(&directory))
     })
 }
 

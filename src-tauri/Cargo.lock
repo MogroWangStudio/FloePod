@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "floe-pod"
-version = "2.0.0-beta3"
+version = "2.0.0-beta4"
 dependencies = [
  "base64 0.22.1",
  "image",
