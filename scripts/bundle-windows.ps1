@@ -1,5 +1,9 @@
 $ErrorActionPreference = 'Stop'
-$arguments = @('tauri', 'bundle', '--ci', '--bundles', 'nsis,msi')
+# 测试版本（x.y.z-beta<N>）跳过 MSI 与 MSIX：这两种 Windows 安装包格式只
+# 接受纯数字版本号，无法表达预发布。测试通道产物为 NSIS 安装器与便携包。
+$version = (Get-Content (Join-Path $PSScriptRoot '..\package.json') -Raw | ConvertFrom-Json).version
+$isPrerelease = $version -match '-'
+$arguments = @('tauri', 'bundle', '--ci', '--bundles', $(if ($isPrerelease) { 'nsis' } else { 'nsis,msi' }))
 $signingConfig = $null
 try {
   if ($env:FLOEPOD_SIGN_CERT_PATH) {
@@ -20,7 +24,11 @@ try {
   if ($env:FLOEPOD_SIGN_CERT_PATH) {
     & (Join-Path $PSScriptRoot 'sign-windows-artifacts.ps1') -Path 'src-tauri/target/release/FloePod.exe'
   }
-  & (Join-Path $PSScriptRoot 'package-msix.ps1')
+  if ($isPrerelease) {
+    Write-Output "Pre-release $version: MSI and MSIX packaging skipped"
+  } else {
+    & (Join-Path $PSScriptRoot 'package-msix.ps1')
+  }
 } finally {
   if ($signingConfig -and (Test-Path -LiteralPath $signingConfig)) {
     Remove-Item -LiteralPath $signingConfig -Force

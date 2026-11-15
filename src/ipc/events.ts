@@ -11,7 +11,11 @@ export async function listen<Name extends keyof EventContract>(
   event: Name,
   handler: (payload: EventContract[Name]) => void,
 ): Promise<() => void> {
-  if (!inTauri) return () => undefined;
+  if (!inTauri) {
+    // 浏览器预览：mock 命令通过 mock 的事件总线推事件（如更新进度）。
+    const { onMockEvent } = await import("./mock");
+    return onMockEvent(event, handler as (payload: unknown) => void);
+  }
   return listenGlobal<EventContract[Name]>(event, ({ payload }) => handler(payload));
 }
 

@@ -27,6 +27,7 @@ let settings: Settings = {
   theme: "system",
   firstRunDone: false,
   autostart: false,
+  updateChannel: "stable",
   hotkeys: { ...HOTKEY_DEFAULTS },
   autoBlock: { enabled: false, apps: [] },
   accessibility: {
@@ -198,6 +199,34 @@ const unlockedPods = new Set<number>();
 const panelStates = new Map<number, PanelState>();
 const cuts = new Map<DragCutToken, { podId: number; paths: string[] }>();
 let cutSequence = 0;
+
+/**
+ * 浏览器预览的事件总线：原生事件（如更新进度）在纯浏览器里没有 Tauri
+ * event 系统可用，mock 命令通过它把事件推给 listen() 的订阅者。
+ */
+type MockListener = (payload: unknown) => void;
+const mockListeners = new Map<string, Set<MockListener>>();
+export function onMockEvent(name: string, handler: MockListener): () => void {
+  let set = mockListeners.get(name);
+  if (!set) {
+    set = new Set();
+    mockListeners.set(name, set);
+  }
+  set.add(handler);
+  return () => set.delete(handler);
+}
+function emitMockEvent(name: string, payload: unknown) {
+  for (const handler of mockListeners.get(name) ?? []) handler(payload);
+}
+
+/** mock 更新源：比 package.json 版本更高的一个假 beta 发布。 */
+const MOCK_UPDATE = {
+  version: "2.1.0-beta1",
+  prerelease: true,
+  notes: "更新向导演示：下载完成后会自动读秒重启并安装，可随时取消。",
+  releaseUrl: "https://github.com/MogroWang/FloePod/releases/tag/v2.1.0-beta1",
+  assetName: "FloePod-2.1.0-beta1-win-x64-portable.zip",
+};
 
 function panelState(podId: number): PanelState {
   let state = panelStates.get(podId);
@@ -429,6 +458,29 @@ export async function mockInvoke<T>(
     case Commands.ChangeDataDir:
       return result(undefined);
     case Commands.RestartApp:
+      return result(undefined);
+    case Commands.CheckUpdate:
+      return result(MOCK_UPDATE);
+    case Commands.DownloadUpdate: {
+      // 模拟 40MB 包体按 256KB 步进推送进度，节奏接近真实下载的前几秒
+      const total = 40 * 1024 * 1024;
+      const step = 256 * 1024;
+      let received = 0;
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          received = Math.min(total, received + step * 12);
+          emitMockEvent("floepod://update-progress", { received, total });
+          if (received >= total) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 90);
+      });
+      return result(undefined);
+    }
+    case Commands.CancelUpdateDownload:
+      return result(undefined);
+    case Commands.InstallUpdate:
       return result(undefined);
     case Commands.GetPodSecurityStatus: {
       const podId = Number(args?.podId);

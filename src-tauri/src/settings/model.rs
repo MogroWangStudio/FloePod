@@ -265,6 +265,11 @@ pub struct Settings {
     pub first_run_done: bool,
     #[serde(default)]
     pub autostart: bool,
+    /// 更新通道：stable 只接收正式 Release；beta 同时接收 Pre-Release。
+    /// 仅在用户主动「检查更新」时联网，应用本身保持不联网承诺。
+    #[serde(default = "d_update_channel")]
+    #[schemars(extend("enum" = ["stable","beta"]))]
+    pub update_channel: String,
     #[serde(default = "Hotkeys::with_defaults")]
     pub hotkeys: Hotkeys,
     #[serde(default)]
@@ -284,6 +289,9 @@ pub struct Settings {
 fn d_theme() -> String {
     "system".into()
 }
+fn d_update_channel() -> String {
+    "stable".into()
+}
 
 impl Default for Settings {
     fn default() -> Self {
@@ -291,6 +299,7 @@ impl Default for Settings {
             theme: d_theme(),
             first_run_done: false,
             autostart: false,
+            update_channel: d_update_channel(),
             hotkeys: Hotkeys::with_defaults(),
             auto_block: AutoBlock::default(),
             accessibility: Accessibility::default(),

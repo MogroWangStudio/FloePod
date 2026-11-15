@@ -4,7 +4,13 @@ import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { githubApi, output } from "./github-api.mjs";
-import { verifyVersions, compareVersions } from "./project-version.mjs";
+import { verifyVersions, compareVersions, isPrerelease } from "./project-version.mjs";
+
+// 测试版本（x.y.z-beta<N>）跳过 MSI/MSIX（Windows 安装包格式只接受纯数字
+// 版本号），产物为 3 个包；正式版本为 5 个包。两类都带 manifest 与校验和。
+export function expectedAssetCount(version) {
+  return (isPrerelease(version) ? 3 : 5) + 2;
+}
 
 export function validateRelease(release, tag, sha) {
   if (release.tag_name !== tag || !release.body?.includes(`<!-- floepod-source:${sha} -->`))
@@ -33,7 +39,7 @@ async function verifyPublished(api, release, sha, version) {
   const assets = await api(`/releases/${release.id}/assets?per_page=100`);
   const sumsAsset = assets.find((asset) => asset.name === "SHA256SUMS.txt");
   const manifestAsset = assets.find((asset) => asset.name === "release-manifest.json");
-  if (!sumsAsset || !manifestAsset || assets.length !== 7)
+  if (!sumsAsset || !manifestAsset || assets.length !== expectedAssetCount(version))
     throw Error("Published Release is incomplete");
   const sums = await remoteBytes(sumsAsset),
     manifest = await remoteBytes(manifestAsset);
@@ -52,7 +58,7 @@ async function verifyPublished(api, release, sha, version) {
       return { name: match[2], size: asset.size, sha256: match[1] };
     });
   if (
-    new Set(expected.map((item) => item.name)).size !== 6 ||
+    new Set(expected.map((item) => item.name)).size !== expectedAssetCount(version) - 1 ||
     expected.some((item) => item.name === "SHA256SUMS.txt")
   )
     throw Error("Invalid checksum coverage");
@@ -114,7 +120,8 @@ async function main() {
         .update(readFileSync(join(directory, name)))
         .digest("hex"),
     }));
-  if (expected.length !== 7) throw Error("Expected five packages, manifest, and checksums");
+  if (expected.length !== expectedAssetCount(version))
+    throw Error(`Expected ${expectedAssetCount(version) - 2} packages, manifest, and checksums`);
   const manifest = JSON.parse(readFileSync(join(directory, "release-manifest.json"), "utf8"));
   if (manifest.commit !== sha || manifest.version !== version)
     throw Error("Local asset source/version mismatch");
@@ -122,12 +129,24 @@ async function main() {
     method: "POST",
     body: { tag_name: tag, target_commitish: sha },
   });
-  const body = `${notes.body}\n\n源码提交：\`${sha}\`；PR #${process.env.RELEASE_PR}。\n\nAuthenticode：${manifest.signing === "verified" ? "已签名并验证" : "未签名（未配置签名证书）"}。SHA-256 与构建来源证明对应最终发布文件。\n\n<!-- floepod-source:${sha} -->`;
+  const source =
+    process.env.RELEASE_PR && /^[1-9]\d*$/.test(process.env.RELEASE_PR)
+      ? `源码提交：\`${sha}\`；PR #${process.env.RELEASE_PR}。`
+      : `源码提交：\`${sha}\`。`;
+  const body = `${notes.body}\n\n${source}\n\nAuthenticode：${manifest.signing === "verified" ? "已签名并验证" : "未签名（未配置签名证书）"}。SHA-256 与构建来源证明对应最终发布文件。\n\n<!-- floepod-source:${sha} -->`;
+  const pre = isPrerelease(version);
   const draft =
     release ??
     (await api("/releases", {
       method: "POST",
-      body: { tag_name: tag, target_commitish: sha, name: `FloePod ${version}`, body, draft: true },
+      body: {
+        tag_name: tag,
+        target_commitish: sha,
+        name: `FloePod ${version}`,
+        body,
+        draft: true,
+        prerelease: pre,
+      },
     }));
   // An interrupted draft can be rebuilt. Published assets are never replaced.
   execFileSync(
@@ -148,7 +167,8 @@ async function main() {
   const makeLatest = !latest || compareVersions(version, latest.tag_name.replace(/^v/, "")) > 0;
   const published = await api(`/releases/${draft.id}`, {
     method: "PATCH",
-    body: { draft: false, body, make_latest: String(makeLatest) },
+    // Pre-Release 永远不抢占 latest；正式版只在比现有 latest 更新时标记。
+    body: { draft: false, prerelease: pre, body, make_latest: pre ? "false" : String(makeLatest) },
   });
   await verifyRemote(api, published, expected);
   console.log(`Published and verified ${published.html_url}`);

@@ -1,14 +1,8 @@
-name: Release Windows
+name: Release
 on:
-  workflow_run:
-    workflows: [Merged PR notification]
-    types: [completed]
+  push:
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      notification_run_id:
-        description: "需要恢复发布的成功合并通知 run ID"
-        required: true
-        type: string
 permissions:
   contents: read
 # GitHub queues up to 100 pending runs instead of replacing older releases.
@@ -18,31 +12,29 @@ concurrency:
   queue: max
 jobs:
   resolve:
-    name: Verify merged release source
-    if: (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || github.event.workflow_run.conclusion == 'success'
+    name: Verify release source
+    # push 触发已由 on.push.branches 限定默认分支；这里的 if 与手动触发
+    # 的 ref 校验互为双保险，防止从其他分支手动派发。
+    if: (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: read
-      pull-requests: read
     outputs:
       sha: ${{ steps.identity.outputs.sha }}
-      pr: ${{ steps.identity.outputs.pr }}
-      notification: ${{ steps.identity.outputs.notification }}
     steps:
       - name: Load resolver from this workflow's trusted immutable definition
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-      - name: Verify notification, PR, merge SHA and default-branch ancestry
+      - name: Resolve and verify the default branch HEAD as release source
         id: identity
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-identity.mjs
   publish:
-    name: Build, sign, attest and publish merged source
+    name: Build, sign, attest and publish
     needs: resolve
     runs-on: windows-latest
     timeout-minutes: 90
@@ -52,11 +44,9 @@ jobs:
       attestations: write
     env:
       RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
-      RELEASE_PR: ${{ needs.resolve.outputs.pr }}
-      NOTIFICATION_RUN: ${{ needs.resolve.outputs.notification }}
       GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
     steps:
-      - name: Check out the verified immutable merged source
+      - name: Check out the verified release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.resolve.outputs.sha }}
@@ -104,7 +94,7 @@ jobs:
           if ($publisher -match '[\r\n]') { throw 'Invalid certificate subject' }
           "FLOEPOD_SIGN_CERT_PATH=$certificate" >> $env:GITHUB_ENV
           "FLOEPOD_MSIX_PUBLISHER=$publisher" >> $env:GITHUB_ENV
-      - name: Package final executable as NSIS, MSI and MSIX
+      - name: Package installers (MSI and MSIX skipped for pre-releases)
         if: steps.state.outputs.published != 'true'
         shell: pwsh
         env:

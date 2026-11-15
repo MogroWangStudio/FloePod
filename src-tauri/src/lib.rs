@@ -32,6 +32,7 @@ mod staging;
 mod state;
 mod thumbnail;
 mod tray;
+mod update;
 mod watcher;
 mod win;
 

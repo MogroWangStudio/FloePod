@@ -410,10 +410,10 @@
 .settings-root .reset-line {
   margin-top: 18px;
 }
-/* 关于页的版本按钮与居中的 about-hero / about-meta 对齐 */
-.settings-root .about-update-line {
-  display: flex;
-  justify-content: center;
+/* 关于页的更新卡片：与居中的 about-hero / about-meta 同宽对齐 */
+.settings-root .about-update-card {
+  max-width: 430px;
+  margin: 0 auto 20px;
 }
 
 .settings-root .pod-picker {

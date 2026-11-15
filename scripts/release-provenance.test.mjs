@@ -7,7 +7,7 @@ const claims = {
   ref: "refs/heads/main",
   workflow_ref: "MogroWang/FloePod/.github/workflows/release.yml@refs/heads/main",
   job_workflow_ref: "MogroWang/FloePod/.github/workflows/release.yml@refs/heads/main",
-  event_name: "workflow_run",
+  event_name: "push",
   repository_id: "10",
   repository_owner_id: "20",
   runner_environment: "github-hosted",
@@ -26,7 +26,7 @@ test("predicate mirrors the official workflow/v1 provenance shape", () => {
     ref: "refs/heads/main",
   });
   assert.deepEqual(buildDefinition.internalParameters.github, {
-    event_name: "workflow_run",
+    event_name: "push",
     repository_id: "10",
     repository_owner_id: "20",
     runner_environment: "github-hosted",

@@ -15,6 +15,18 @@ pub fn resolve() -> PathBuf {
     DATA_DIR.get_or_init(resolve_uncached).clone()
 }
 
+/// 当前实例是否为便携版（exe 旁有 marker 或 FloePodData 目录）。
+/// 应用内更新据此选择包体：便携版直替 exe，安装版走安装器静默重装。
+pub fn is_portable() -> bool {
+    static PORTABLE: OnceLock<bool> = OnceLock::new();
+    *PORTABLE.get_or_init(|| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|executable| executable.parent().map(Path::to_path_buf))
+            .is_some_and(portable_requested)
+    })
+}
+
 fn resolve_uncached() -> PathBuf {
     // 关于页「更改数据位置」写入的注册表覆盖项优先于便携模式与默认位置。
     if let Some(overridden) = override_data_dir() {

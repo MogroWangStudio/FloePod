@@ -38,6 +38,9 @@ fn validate_impl(s: &Settings, data_dir: &str, allow_missing_roots: bool) -> Res
     if !matches!(s.theme.as_str(), "system" | "light" | "dark") {
         return Err(format!("未知主题: {}", s.theme));
     }
+    if !matches!(s.update_channel.as_str(), "stable" | "beta") {
+        return Err(format!("未知更新通道: {}", s.update_channel));
+    }
 
     if s.auto_block.apps.len() > 64 {
         return Err("自动屏蔽应用列表过长".into());

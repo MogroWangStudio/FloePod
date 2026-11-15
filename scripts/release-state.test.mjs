@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ensureTag, validateRelease, verifyRemote } from "./release-state.mjs";
+import { ensureTag, validateRelease, verifyRemote, expectedAssetCount } from "./release-state.mjs";
+test("pre-release channel ships fewer packages than stable", () => {
+  // beta：裸 exe + NSIS + 便携包 + manifest + 校验和；正式版另有 MSI/MSIX。
+  assert.equal(expectedAssetCount("2.0.0-beta1"), 5);
+  assert.equal(expectedAssetCount("2.0.0"), 7);
+});
 test("tag retries are idempotent and never move another commit's tag", async () => {
   const sha = "a".repeat(40),
     calls = [];

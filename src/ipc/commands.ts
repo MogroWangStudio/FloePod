@@ -60,5 +60,9 @@ export const Commands = {
   UpdatePod: "update_pod",
   VerifyHandoff: "verify_handoff",
   WriteClipboardText: "write_clipboard_text",
+  CancelUpdateDownload: "cancel_update_download",
+  CheckUpdate: "check_update",
+  DownloadUpdate: "download_update",
+  InstallUpdate: "install_update",
 } as const;
 export type CommandName = typeof Commands[keyof typeof Commands];

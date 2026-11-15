@@ -10,7 +10,7 @@ use crate::staging::StagePathsResult;
 use crate::thumbnail::ThumbnailPayload;
 use crate::{
     drag_out, export, handoff, logging, manager, operations, paths, pods, privacy, security,
-    staging, thumbnail,
+    staging, thumbnail, update,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -103,6 +103,38 @@ pub async fn change_data_dir(app: AppHandle, new_path: String) -> Result<(), Str
 #[tauri::command]
 pub fn restart_app(app: AppHandle) {
     app.restart();
+}
+
+// ---- 应用内更新 ----
+
+/// 检查更新：查询 GitHub Releases 的 Atom 摘要源，按更新通道过滤
+/// （stable 只收正式版，beta 额外接收 Pre-Release）。已最新时返回 null。
+#[tauri::command]
+pub async fn check_update(app: AppHandle, channel: String) -> Result<Option<update::UpdateInfo>, String> {
+    blocking(app.clone(), "检查更新", move || update::check(&channel)).await
+}
+
+/// 下载更新包体到数据目录的 updates 子目录。进度经 update-progress 事件
+/// 推送；下载中的取消由 cancel_update_download 触发。
+#[tauri::command]
+pub async fn download_update(app: AppHandle, version: String) -> Result<(), String> {
+    blocking(app.clone(), "下载更新", move || {
+        update::download(&app, &version)
+    })
+    .await
+}
+
+/// 取消进行中的下载：下载循环在下一块前停止并清理临时文件。
+#[tauri::command]
+pub fn cancel_update_download() {
+    update::cancel_download();
+}
+
+/// 退出并安装已下载的更新：便携版直替 exe（文件名同步改为新版本号），
+/// 安装版静默重跑 NSIS 安装器后从原路径启动。
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    blocking(app.clone(), "安装更新", move || update::install(&app)).await
 }
 
 // Windows 上创建窗口必须使用异步 Tauri 命令，同步命令可能与 UI 消息循环死锁。

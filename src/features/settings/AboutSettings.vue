@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { open as openDirectory } from "@tauri-apps/plugin-dialog";
 import { useSettingsEditor } from "./context";
+import { UPDATE_CHANNELS } from "./options";
 import { ipc } from "@/ipc/client";
 import { formatSize } from "@/lib/format";
+import type { UpdateChannel, UpdateInfo } from "@/domain/types";
 import BrandMark from "@/components/BrandMark.vue";
+import SettingsRow from "@/components/SettingsRow.vue";
+import SegmentedControl from "@/components/SegmentedControl.vue";
+import UpdateWizard from "./UpdateWizard.vue";
 
-const { s, showToast } = useSettingsEditor();
+const { s, save, showToast } = useSettingsEditor();
 
 /* 数据占用：后端递归统计数据目录（数据库、撤销区、日志）。 */
 const usage = ref<number | null>(null);
@@ -19,57 +24,34 @@ onMounted(() => {
     .catch(() => (usage.value = null));
 });
 
-/* 检查更新：查询 GitHub Releases 最新版本号并比较。 */
-const RELEASES_URL = "https://github.com/MogroWang/FloePod/releases/latest";
-const RELEASES_API = "https://api.github.com/repos/MogroWang/FloePod/releases/latest";
+/* 应用内更新：检查只由用户在这里主动触发（全应用唯一的联网时刻）。
+   发现新版本后交给向导自动下载、读秒并重启安装，每一步都可取消。 */
 const checking = ref(false);
-const updateState = ref<"idle" | "latest" | "available" | "failed">("idle");
-const latestVersion = ref("");
-
-function compareVersions(a: string, b: string): number {
-  const left = a.split(".").map(Number);
-  const right = b.split(".").map(Number);
-  for (let i = 0; i < 3; i += 1) {
-    const diff = (left[i] || 0) - (right[i] || 0);
-    if (diff) return diff;
-  }
-  return 0;
-}
+const updateWizard = ref<UpdateInfo | null>(null);
 
 async function checkUpdates() {
-  if (checking.value) return;
+  if (checking.value || updateWizard.value) return;
   checking.value = true;
   try {
-    const response = await fetch(RELEASES_API, {
-      headers: { Accept: "application/vnd.github+json" },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const release = (await response.json()) as { tag_name?: string };
-    const tag = (release.tag_name ?? "").replace(/^v/, "");
-    if (!tag) throw new Error("empty tag");
-    latestVersion.value = tag;
-    updateState.value = compareVersions(tag, s.value.version) > 0 ? "available" : "latest";
+    const info = await ipc.checkUpdate(s.value.updateChannel);
+    if (info) {
+      updateWizard.value = info;
+    } else {
+      showToast(`已是最新版本（${s.value.version}）`);
+    }
   } catch (error) {
     console.error("check update failed", error);
-    updateState.value = "failed";
+    showToast(`检查失败：${String(error)}`);
   } finally {
     checking.value = false;
   }
 }
 
-const updateText = computed(() => {
-  if (checking.value) return "正在检查…";
-  switch (updateState.value) {
-    case "latest":
-      return "已是最新版本";
-    case "available":
-      return `发现新版本 ${latestVersion.value}`;
-    case "failed":
-      return "检查失败，请稍后重试";
-    default:
-      return "";
-  }
-});
+const channelHint = computed(() =>
+  s.value.updateChannel === "beta"
+    ? "测试通道：正式版与测试版（Pre-Release）都会提示"
+    : "稳定通道：只提示正式发布的版本",
+);
 
 /* 更改数据位置：选择新目录 → 复制数据 → 重启生效。 */
 const migrating = ref(false);
@@ -118,6 +100,21 @@ async function restartNow() {
       把文件拖到屏幕边缘的匣里集中保管，需要时再拖出去继续使用。<br />
       不联网，不收集数据——所有内容都只保存在你自己的电脑上。
     </p>
+    <div class="settings-card about-update-card">
+      <SettingsRow label="更新通道" :hint="channelHint">
+        <SegmentedControl
+          :options="UPDATE_CHANNELS"
+          :model-value="s.updateChannel"
+          @update:model-value="(v) => save({ updateChannel: v as UpdateChannel })"
+        />
+      </SettingsRow>
+      <div class="sep" />
+      <SettingsRow label="检查更新" hint="只在点击时联网查询 GitHub，其余时间保持离线">
+        <button type="button" class="btn" :disabled="checking" @click="checkUpdates">
+          {{ checking ? "正在检查…" : "检查更新" }}
+        </button>
+      </SettingsRow>
+    </div>
     <div class="about-meta">
       <div class="about-row">
         <span class="about-key">数据位置</span>
@@ -143,20 +140,9 @@ async function restartNow() {
     <p v-if="pendingRestart" class="about-restart-note">
       数据已迁移到新位置。重启 FloePod 后生效，当前会话仍使用旧位置。
     </p>
-    <div class="reset-line about-update-line">
-      <button v-if="pendingRestart" type="button" class="btn primary" @click="restartNow">
-        立即重启
-      </button>
-      <button type="button" class="btn" :disabled="checking" @click="checkUpdates">检查更新</button>
-      <span v-if="updateText" class="about-update-result" role="status">{{ updateText }}</span>
-      <button
-        v-if="updateState === 'available'"
-        type="button"
-        class="btn primary"
-        @click="openUrl(RELEASES_URL)"
-      >
-        前往下载
-      </button>
+    <div v-if="pendingRestart" class="reset-line">
+      <button type="button" class="btn primary" @click="restartNow">立即重启</button>
     </div>
+    <UpdateWizard v-if="updateWizard" :info="updateWizard" @close="updateWizard = null" />
   </div>
 </template>

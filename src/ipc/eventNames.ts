@@ -16,4 +16,5 @@ export const Events = {
   PodsChanged: "floepod://pods-changed",
   RequestFilePicker: "floepod://request-file-picker",
   SettingsChanged: "floepod://settings-changed",
+  UpdateProgress: "floepod://update-progress",
 } as const;

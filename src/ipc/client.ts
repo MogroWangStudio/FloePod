@@ -27,6 +27,8 @@ import type {
   SafeExportResult,
   SecurityStatus,
   UndoResult,
+  UpdateChannel,
+  UpdateInfo,
   VerifyResult,
 } from "@/domain/types";
 import type { CommandContract } from "./generated";
@@ -60,6 +62,16 @@ export const ipc = {
   /** 迁移数据目录到新位置；重启应用后生效。 */
   changeDataDir: (newPath: string): Promise<void> => invoke(Commands.ChangeDataDir, { newPath }),
   restartApp: (): Promise<void> => invoke(Commands.RestartApp),
+
+  /** 检查更新：stable 只收正式版，beta 额外接收 Pre-Release；已最新时返回 null。 */
+  checkUpdate: (channel: UpdateChannel): Promise<UpdateInfo | null> =>
+    invoke(Commands.CheckUpdate, { channel }),
+  /** 下载指定版本的更新包体；进度经 update-progress 事件推送。 */
+  downloadUpdate: (version: string): Promise<void> => invoke(Commands.DownloadUpdate, { version }),
+  /** 取消进行中的下载。 */
+  cancelUpdateDownload: (): Promise<void> => invoke(Commands.CancelUpdateDownload),
+  /** 退出并安装已下载的更新：便携版直替改名，安装版静默重装。 */
+  installUpdate: (): Promise<void> => invoke(Commands.InstallUpdate),
 
   createPod: (config: Partial<Pod>, reuseExisting = false): Promise<Pod> =>
     invoke(Commands.CreatePod, { config, reuseExisting }),

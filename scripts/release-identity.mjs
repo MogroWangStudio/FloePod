@@ -1,62 +1,23 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { githubApi, eventPayload, output } from "./github-api.mjs";
+import { githubApi, output } from "./github-api.mjs";
 
-// The notification run name contains only GitHub's numeric PR identity and the
-// merge SHA. Neither author, branch name nor PR title is executable input.
-export async function resolveRelease(api, runId) {
-  if (!/^[1-9]\d*$/.test(String(runId))) throw Error("Invalid notification run ID");
-  const [repository, workflow, run] = await Promise.all([
-    api(""),
-    api("/actions/workflows/merge-notification.yml"),
-    api(`/actions/runs/${runId}`),
-  ]);
-  const identity = /^Merged PR #([1-9]\d*) at ([0-9a-f]{40})$/.exec(run.display_title ?? "");
-  if (
-    !identity ||
-    run.id !== Number(runId) ||
-    run.workflow_id !== workflow.id ||
-    run.path !== ".github/workflows/merge-notification.yml" ||
-    run.event !== "pull_request_target" ||
-    run.conclusion !== "success" ||
-    run.repository?.id !== repository.id
-  ) {
-    throw Error("Run is not a successful trusted merge notification");
-  }
-  const [, number, sha] = identity;
-  // head_repository describes PR provenance and may be a fork. Trust only the
-  // target workflow identity and the independently verified merged base commit.
-  const pr = await api(`/pulls/${number}`);
-  if (
-    pr.number !== Number(number) ||
-    !pr.merged ||
-    !pr.merged_at ||
-    pr.state !== "closed" ||
-    pr.base.repo.id !== repository.id ||
-    pr.base.ref !== repository.default_branch ||
-    pr.merge_commit_sha !== sha
-  ) {
-    throw Error("Notification does not identify this PR's immutable merged commit");
-  }
-  const comparison = await api(
-    `/compare/${sha}...${encodeURIComponent(repository.default_branch)}`,
-  );
-  if (
-    !["ahead", "identical"].includes(comparison.status) ||
-    comparison.merge_base_commit?.sha !== sha
-  ) {
-    throw Error("Merged commit is not an ancestor of the current default branch");
-  }
-  return { sha, pr: number, notification: String(runId) };
+// push / workflow_dispatch 都以默认分支当前 HEAD 为发布源。写入默认分支
+// 本身就需要仓库写权限（fork 无法在上游触发 push 事件），因此不再需要旧
+// 「合并通知 → workflow_run」两阶段链的间接身份验证。排队期间 HEAD 前进
+// 时按最新 HEAD 发布：版本号在 checkout 后由 release-state 重新读取，幂等
+// 门控保证已发布版本不会被重复构建。
+export async function resolveSource(api) {
+  const repository = await api("");
+  const branch = repository.default_branch;
+  const head = await api(`/commits/${encodeURIComponent(branch)}`);
+  if (!/^[0-9a-f]{40}$/.test(head.sha ?? "")) throw Error("Invalid default branch HEAD");
+  return { sha: head.sha, branch };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const event = eventPayload();
-  if (!["workflow_run", "workflow_dispatch"].includes(process.env.GITHUB_EVENT_NAME))
+  if (!["push", "workflow_dispatch"].includes(process.env.GITHUB_EVENT_NAME))
     throw Error("Unsupported release trigger");
-  const identity = await resolveRelease(
-    githubApi(),
-    event.workflow_run?.id ?? event.inputs?.notification_run_id,
-  );
+  const identity = await resolveSource(githubApi());
   output(identity);
-  console.log(`Verified merged PR #${identity.pr} at ${identity.sha}`);
+  console.log(`Verified default branch ${identity.branch} at ${identity.sha}`);
 }

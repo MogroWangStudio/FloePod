@@ -31,8 +31,8 @@ export async function getOIDCClaims() {
 
 export function buildPredicate({ claims, sha, serverURL, workflowSha }) {
   for (const key of REQUIRED_CLAIMS) if (!claims[key]) throw Error(`OIDC claim missing: ${key}`);
-  // workflow_run's GITHUB_SHA describes the workflow's base, not necessarily the
-  // merged PR being released. Record both identities instead of misattributing it.
+  // The run's GITHUB_SHA can drift from the verified release source while
+  // queued runs pile up. Record both identities instead of misattributing it.
   const repoURL = `${serverURL}/${claims.repository}`;
   const [workflowPath] = claims.workflow_ref.replace(`${claims.repository}/`, "").split("@");
   return {

@@ -1,4 +1,4 @@
-import type { Edge, DropAction, Material, ThemeMode } from "@/domain/types";
+import type { Edge, DropAction, Material, ThemeMode, UpdateChannel } from "@/domain/types";
 export const EDGES: { value: Edge; label: string }[] = [
   { value: "top", label: "上" },
   { value: "bottom", label: "下" },
@@ -22,4 +22,9 @@ export const THEMES: { value: ThemeMode; label: string }[] = [
   { value: "system", label: "跟随系统" },
   { value: "light", label: "浅色" },
   { value: "dark", label: "深色" },
+];
+
+export const UPDATE_CHANNELS: { value: UpdateChannel; label: string }[] = [
+  { value: "stable", label: "稳定" },
+  { value: "beta", label: "测试" },
 ];

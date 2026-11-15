@@ -2,7 +2,20 @@
 
 记录每个版本的显著变更，最新版本在最上面。
 
-## 1.8.3（当前）
+## 2.0.0-beta1（当前）
+
+### 新增
+
+- **应用内更新**：关于页的「检查更新」从「跳浏览器下载」升级为完整向导——发现新版本后自动下载对应平台的包体（便携版下载 zip、安装版下载 NSIS 安装器，带进度条与已收/总字节），下载完成读秒 6 秒自动重启安装；下载可随时取消（后端停止写入并清理临时包），读秒中点「稍后」只关闭向导。便携版安装后 exe 文件名同步改为带新版本号（如 `FloePod-2.0.0.exe`），用户改过名的文件也会补上版本号而不是覆盖；MSIX 侧载环境检测后拒绝自动安装（系统管理的包无法被安装器原地升级），提示手动下载
+- **稳定 / 测试双更新通道**：设置页新增「更新通道」选择（默认稳定）。稳定通道只提示正式 Release；测试通道额外接收 Pre-Release。通道判定与发布流水线同源：tag 去掉 `v` 前缀后含 `-` 即预发布。检查走 GitHub Releases 的 Atom 摘要源（匿名 REST API 按 IP 限流易 403），发布说明 HTML 在本地剥离为纯文本并截断
+
+### 变更
+
+- **发布流水线改为推送触发并自动识别版本类型**：`release.yml` 触发方式从「PR 合并通知 → `workflow_run` 两阶段链」改为 `push` 到 main + 手动 `workflow_dispatch`（fork 无法在上游触发 push 事件，写入 main 本身需要写权限，间接身份验证不再必要，`merge-notification.yml` 移除）。发布时读取 `tauri.conf.json` 版本号：纯数字 `x.x.x` 发正式 Release（按 semver 决定 latest 标记），`x.y.z-beta<N>` 发 Pre-Release 且永不抢占 latest；幂等门控（版本未变不重复构建、已发布产物不覆盖、tag 不迁移）与签名、attestation 全部保留。原先的「PR 合并后自动发布」链路随之关闭
+- **预发布版本跳过 MSI/MSIX**：这两种 Windows 安装包格式只接受纯数字版本号，`x.y.z-beta<N>` 的发布产物为裸 exe、NSIS 安装器与便携包（正式版本仍为五件套）；`scripts/project-version.mjs` 的版本校验相应放宽为允许 `-beta<N>` 单段后缀（数字段仍受 255.255.65535 上限约束），MSI/MSIX 打包脚本与产物校验按版本条件执行
+- **更新通道设置**：`Settings` 新增 `updateChannel` 字段（`stable` / `beta`，默认稳定），随设置持久化与校验；IPC 契约新增 `check_update`、`download_update`、`cancel_update_download`、`install_update` 四个命令与 `floepod://update-progress` 进度事件（Rust 侧下载在后台线程分块进行，每 256 KB 推送一次进度，包体 URL 由后端按版本号规则拼出，WebView 无法注入任意下载地址）
+
+## 1.8.3
 
 ### 修复
 

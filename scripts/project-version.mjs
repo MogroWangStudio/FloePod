@@ -3,7 +3,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 export const root = fileURLToPath(new URL("../", import.meta.url));
-const stable = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const semver =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 export function parseVersion(value) {
@@ -48,14 +47,20 @@ export function projectVersions(read = (path) => readFileSync(resolve(root, path
     "README.md": read("README.md").match(/当前源码版本 \*\*([^*]+)\*\*/)?.[1],
   };
 }
+/** 发布渠道判定，与 Release 工作流和 Rust 更新检查同源：含后缀即 Pre-Release。 */
+export function isPrerelease(version) {
+  return version.includes("-");
+}
 export function verifyVersions(versions = projectVersions()) {
   const version = versions["package.json"];
-  parseVersion(version);
-  if (
-    !stable.test(version) ||
-    version.split(".").some((part, index) => BigInt(part) > [255n, 255n, 65535n][index])
-  )
-    throw Error("Windows MSI/MSIX installers require a stable version within 255.255.65535");
+  const parsed = parseVersion(version);
+  // 数字段仍受 Windows 版本上限约束；预发布只允许 -beta<N> 单段后缀。
+  // 带后缀的版本跳过 MSI/MSIX（Windows 安装包只接受纯数字版本号），
+  // 发布产物为 NSIS 安装器与便携包，其余发布流程一致。
+  if (parsed.core.some((part, index) => part > [255n, 255n, 65535n][index]))
+    throw Error("Version must stay within 255.255.65535 for Windows packaging");
+  if (parsed.pre.length > 1 || !/^beta[1-9]\d*$/.test(parsed.pre[0] ?? ""))
+    throw Error("Pre-release versions must use the -beta<N> suffix");
   for (const [path, value] of Object.entries(versions))
     if (value !== version) throw Error(`Version mismatch: ${path}=${value}; expected ${version}`);
   return version;

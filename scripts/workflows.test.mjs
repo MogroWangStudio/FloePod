@@ -26,31 +26,25 @@ test("all Actions workflows conform to the pinned current schema and immutable a
       }
   }
 });
-test("release has a serial non-dropping queue and no broad push/tag chain or repeated CI", () => {
+test("release publishes on push to the default branch without the merge notification chain", () => {
   const release = workflow("release"),
-    notification = workflow("merge-notification"),
     ci = workflow("ci");
   assert.deepEqual(release.concurrency, {
     group: "floepod-release",
     "cancel-in-progress": false,
     queue: "max",
   });
-  assert.ok(release.on.workflow_run);
-  assert.equal(release.on.push, undefined);
-  assert.deepEqual(notification.on.pull_request_target.types, ["closed"]);
-  assert.match(notification["run-name"], /merge_commit_sha/);
-  assert.match(notification.jobs.merged.if, /merged == true/);
-  for (const step of notification.jobs.merged.steps) {
-    assert.equal(step.uses, undefined);
-    assert.equal(step.env, undefined);
-  }
-  assert.ok(ci.on.merge_group);
-  assert.deepEqual(ci.permissions, { contents: "read" });
-  for (const job of Object.values(ci.jobs)) assert.equal(job.permissions, undefined);
-  // No scheduled runs: a weekly cron produced red runs nobody acted on, and
-  // advisory discovery belongs to Dependabot alerts, not to a failing workflow.
-  assert.deepEqual(Object.keys(ci.on).sort(), ["merge_group", "pull_request", "workflow_dispatch"]);
-  for (const job of Object.values(ci.jobs)) if (job.if) assert.doesNotMatch(job.if, /schedule/);
+  // 推送到默认分支即自动发布；不接收任意分支/tag，也不再有合并通知链。
+  assert.deepEqual(release.on.push, { branches: ["main"] });
+  assert.ok("workflow_dispatch" in release.on);
+  assert.equal(release.on.workflow_run, undefined);
+  assert.equal(
+    readdirSync(new URL("../.github/workflows", import.meta.url))
+      .filter((name) => name.endsWith(".yml"))
+      .includes("merge-notification.yml"),
+    false,
+  );
+  // 版本类型判定：纯数字版本发正式 Release，带后缀发 Pre-Release。
   const releaseCommands = Object.values(release.jobs)
     .flatMap((job) => job.steps ?? [])
     .map((step) => step.run ?? "")
@@ -61,4 +55,15 @@ test("release has a serial non-dropping queue and no broad push/tag chain or rep
   );
   assert.equal(release.jobs.publish.steps[0].with.ref, "${{ needs.resolve.outputs.sha }}");
   assert.equal(release.jobs.publish.steps[0].with["persist-credentials"], false);
+});
+test("ci stays limited to PR, merge queue and manual triggers", () => {
+  const ci = workflow("ci");
+  assert.ok(ci.on.merge_group);
+  assert.deepEqual(ci.permissions, { contents: "read" });
+  for (const job of Object.values(ci.jobs)) assert.equal(job.permissions, undefined);
+  // No scheduled runs: a weekly cron produced red runs nobody acted on, and
+  // advisory discovery belongs to Dependabot alerts, not to a failing workflow.
+  assert.deepEqual(Object.keys(ci.on).sort(), ["merge_group", "pull_request", "workflow_dispatch"]);
+  assert.equal(ci.on.push, undefined);
+  for (const job of Object.values(ci.jobs)) if (job.if) assert.doesNotMatch(job.if, /schedule/);
 });

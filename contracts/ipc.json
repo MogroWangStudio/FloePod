@@ -1762,6 +1762,15 @@
                 ],
                 "type": "string"
               },
+              "updateChannel": {
+                "default": "stable",
+                "description": "更新通道：stable 只接收正式 Release；beta 同时接收 Pre-Release。\n仅在用户主动「检查更新」时联网，应用本身保持不联网承诺。",
+                "enum": [
+                  "stable",
+                  "beta"
+                ],
+                "type": "string"
+              },
               "version": {
                 "default": "",
                 "description": "只读：由应用在读取时注入并返回前端，但不接受数据库中的旧值。\n`persist` 会在写库前显式剔除这两个运行时字段。",
@@ -1773,6 +1782,7 @@
               "theme",
               "firstRunDone",
               "autostart",
+              "updateChannel",
               "hotkeys",
               "autoBlock",
               "accessibility",
@@ -3304,6 +3314,15 @@
               ],
               "type": "string"
             },
+            "updateChannel": {
+              "default": "stable",
+              "description": "更新通道：stable 只接收正式 Release；beta 同时接收 Pre-Release。\n仅在用户主动「检查更新」时联网，应用本身保持不联网承诺。",
+              "enum": [
+                "stable",
+                "beta"
+              ],
+              "type": "string"
+            },
             "version": true
           },
           "title": "SettingsPatch",
@@ -3830,6 +3849,15 @@
             ],
             "type": "string"
           },
+          "updateChannel": {
+            "default": "stable",
+            "description": "更新通道：stable 只接收正式 Release；beta 同时接收 Pre-Release。\n仅在用户主动「检查更新」时联网，应用本身保持不联网承诺。",
+            "enum": [
+              "stable",
+              "beta"
+            ],
+            "type": "string"
+          },
           "version": {
             "default": "",
             "description": "只读：由应用在读取时注入并返回前端，但不接受数据库中的旧值。\n`persist` 会在写库前显式剔除这两个运行时字段。",
@@ -3841,6 +3869,7 @@
           "theme",
           "firstRunDone",
           "autostart",
+          "updateChannel",
           "hotkeys",
           "autoBlock",
           "accessibility",
@@ -5289,6 +5318,96 @@
         "title": "null",
         "type": "null"
       }
+    },
+    "cancel_update_download": {
+      "args": {},
+      "optionalArgs": [],
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "null",
+        "type": "null"
+      }
+    },
+    "check_update": {
+      "args": {
+        "channel": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "string",
+          "type": "string"
+        }
+      },
+      "optionalArgs": [],
+      "result": {
+        "$defs": {
+          "UpdateInfo": {
+            "description": "一次可用的应用更新：按当前安装形态选好了包体与下载地址。",
+            "properties": {
+              "assetName": {
+                "description": "按当前安装形态选择的包体文件名。",
+                "type": "string"
+              },
+              "notes": {
+                "description": "发布说明（HTML 已剥离为纯文本，超长截断）。",
+                "type": "string"
+              },
+              "prerelease": {
+                "description": "是否预发布：tag 含后缀即预发布，与发布工作流的判定同源。",
+                "type": "boolean"
+              },
+              "releaseUrl": {
+                "description": "GitHub Release 页面链接。",
+                "type": "string"
+              },
+              "version": {
+                "description": "新版本号（不含 v 前缀），如 2.0.0-beta2。",
+                "type": "string"
+              }
+            },
+            "required": [
+              "version",
+              "prerelease",
+              "notes",
+              "releaseUrl",
+              "assetName"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/UpdateInfo"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Nullable_UpdateInfo"
+      }
+    },
+    "download_update": {
+      "args": {
+        "version": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "string",
+          "type": "string"
+        }
+      },
+      "optionalArgs": [],
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "null",
+        "type": "null"
+      }
+    },
+    "install_update": {
+      "args": {},
+      "optionalArgs": [],
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "null",
+        "type": "null"
+      }
     }
   },
   "events": {
@@ -6141,6 +6260,15 @@
           ],
           "type": "string"
         },
+        "updateChannel": {
+          "default": "stable",
+          "description": "更新通道：stable 只接收正式 Release；beta 同时接收 Pre-Release。\n仅在用户主动「检查更新」时联网，应用本身保持不联网承诺。",
+          "enum": [
+            "stable",
+            "beta"
+          ],
+          "type": "string"
+        },
         "version": {
           "default": "",
           "description": "只读：由应用在读取时注入并返回前端，但不接受数据库中的旧值。\n`persist` 会在写库前显式剔除这两个运行时字段。",
@@ -6152,6 +6280,7 @@
         "theme",
         "firstRunDone",
         "autostart",
+        "updateChannel",
         "hotkeys",
         "autoBlock",
         "accessibility",
@@ -6160,6 +6289,28 @@
         "dataDir"
       ],
       "title": "Settings",
+      "type": "object"
+    },
+    "floepod://update-progress": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "下载进度。total 为 0 表示服务器未提供长度（此时只展示已收字节）。",
+      "properties": {
+        "received": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "received",
+        "total"
+      ],
+      "title": "UpdateProgress",
       "type": "object"
     }
   }
