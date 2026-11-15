@@ -25,7 +25,7 @@ try {
     & (Join-Path $PSScriptRoot 'sign-windows-artifacts.ps1') -Path 'src-tauri/target/release/FloePod.exe'
   }
   if ($isPrerelease) {
-    Write-Output "Pre-release $version: MSI and MSIX packaging skipped"
+    Write-Output "Pre-release ${version}: MSI and MSIX packaging skipped"
   } else {
     & (Join-Path $PSScriptRoot 'package-msix.ps1')
   }

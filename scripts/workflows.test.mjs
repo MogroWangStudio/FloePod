@@ -44,7 +44,25 @@ test("release publishes on push to the default branch without the merge notifica
       .includes("merge-notification.yml"),
     false,
   );
-  // 版本类型判定：纯数字版本发正式 Release，带后缀发 Pre-Release。
+  // 三段式：确定发布类型与标签 -> 构建可执行文件 -> 发布；步骤名用中文。
+  assert.deepEqual(Object.keys(release.jobs), ["prepare", "build", "publish"]);
+  assert.match(release.jobs.prepare.name, /确定发布类型与标签/);
+  assert.match(release.jobs.build.name, /构建可执行文件/);
+  assert.match(release.jobs.publish.name, /发布/);
+  const stepNames = (job) => (job.steps ?? []).map((step) => step.name);
+  for (const job of Object.values(release.jobs))
+    for (const name of stepNames(job)) assert.match(name, /[\u4e00-\u9fff]/, name);
+  assert.deepEqual(release.jobs.build.needs, ["prepare"]);
+  assert.deepEqual(release.jobs.publish.needs, ["prepare", "build"]);
+  // 已发布版本（published=true）时后两个 job 直接跳过。
+  assert.match(release.jobs.build.if, /published != 'true'/);
+  assert.match(release.jobs.publish.if, /published != 'true'/);
+  // 构建产物经 artifact 传给发布 job，发布 job 有 OIDC 与 attest 权限。
+  assert.deepEqual(release.jobs.publish.permissions, {
+    contents: "write",
+    "id-token": "write",
+    attestations: "write",
+  });
   const releaseCommands = Object.values(release.jobs)
     .flatMap((job) => job.steps ?? [])
     .map((step) => step.run ?? "")
@@ -53,8 +71,11 @@ test("release publishes on push to the default branch without the merge notifica
     releaseCommands,
     /cargo (test|clippy|fmt|audit)|pnpm (test|audit|format:check|ipc:check)/,
   );
-  assert.equal(release.jobs.publish.steps[0].with.ref, "${{ needs.resolve.outputs.sha }}");
-  assert.equal(release.jobs.publish.steps[0].with["persist-credentials"], false);
+  const checkout = release.jobs.publish.steps.find((step) =>
+    step.uses?.startsWith("actions/checkout"),
+  );
+  assert.equal(checkout.with.ref, "${{ needs.prepare.outputs.sha }}");
+  assert.equal(checkout.with["persist-credentials"], false);
 });
 test("ci stays limited to PR, merge queue and manual triggers", () => {
   const ci = workflow("ci");

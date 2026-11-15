@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: false
   queue: max
 jobs:
-  resolve:
-    name: Verify release source
+  prepare:
+    name: 第一步 · 确定发布类型与标签
     # push 触发已由 on.push.branches 限定默认分支；这里的 if 与手动触发
     # 的 ref 校验互为双保险，防止从其他分支手动派发。
     if: (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
@@ -21,60 +21,64 @@ jobs:
     permissions:
       contents: read
     outputs:
-      sha: ${{ steps.identity.outputs.sha }}
+      sha: ${{ steps.prepare.outputs.sha }}
+      version: ${{ steps.prepare.outputs.version }}
+      tag: ${{ steps.prepare.outputs.tag }}
+      channel: ${{ steps.prepare.outputs.channel }}
+      published: ${{ steps.prepare.outputs.published }}
     steps:
-      - name: Load resolver from this workflow's trusted immutable definition
+      - name: 检出本次工作流的不可变定义
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-      - name: Resolve and verify the default branch HEAD as release source
+      - name: 确定并验证发布来源（默认分支 HEAD）
         id: identity
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-identity.mjs
-  publish:
-    name: Build, sign, attest and publish
-    needs: resolve
+      - name: 检出已验证的发布来源
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.identity.outputs.sha }}
+          persist-credentials: false
+      - name: 校验版本、判定发布类型并创建标签
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.identity.outputs.sha }}
+        run: node scripts/release-state.mjs --prepare
+  build:
+    name: 第二步 · 构建可执行文件
+    needs: [prepare]
+    if: needs.prepare.outputs.published != 'true'
     runs-on: windows-latest
     timeout-minutes: 90
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: read
     env:
-      RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
+      RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
       GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
     steps:
-      - name: Check out the verified release source
+      - name: 检出已验证的发布来源
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve.outputs.sha }}
+          ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
-      - name: Verify HEAD, source versions and idempotent release state
-        id: state
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-state.mjs --prepare
-      - name: Set up pnpm and Node.js
-        if: steps.state.outputs.published != 'true'
+      - name: 安装 pnpm 与 Node.js
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
         with:
           runtime: node@24.19.0
           install: false
-      - name: Set up locked Rust toolchain
-        if: steps.state.outputs.published != 'true'
+      - name: 安装锁定的 Rust 工具链
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: "1.97.1"
-      - name: Install locked dependencies
-        if: steps.state.outputs.published != 'true'
+      - name: 安装锁定的依赖
         run: pnpm install --frozen-lockfile
-      - name: Build executable without repeating CI quality gates
-        if: steps.state.outputs.published != 'true'
+      - name: 构建可执行文件（不重复 CI 质量门禁）
         run: pnpm tauri build --ci --no-bundle --config '{"build":{"beforeBuildCommand":"pnpm exec vite build"}}'
-      - name: Prepare certificate for Tauri signing callbacks
-        if: steps.state.outputs.published != 'true'
+      - name: 准备 Tauri 签名回调用的证书
         shell: pwsh
         env:
           SIGN_CERTIFICATE: ${{ secrets.WINDOWS_SIGN_CERTIFICATE_BASE64 }}
@@ -94,36 +98,63 @@ jobs:
           if ($publisher -match '[\r\n]') { throw 'Invalid certificate subject' }
           "FLOEPOD_SIGN_CERT_PATH=$certificate" >> $env:GITHUB_ENV
           "FLOEPOD_MSIX_PUBLISHER=$publisher" >> $env:GITHUB_ENV
-      - name: Package installers (MSI and MSIX skipped for pre-releases)
-        if: steps.state.outputs.published != 'true'
+      - name: 打包安装器（预发布跳过 MSI 与 MSIX）
         shell: pwsh
         env:
           FLOEPOD_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGN_CERTIFICATE_PASSWORD }}
         run: ./scripts/bundle-windows.ps1
-      - name: Package portable ZIP
-        if: steps.state.outputs.published != 'true'
+      - name: 打包便携 ZIP
         run: node scripts/package-portable.mjs
-      - name: Validate versions, final assets, signatures and checksums
-        if: steps.state.outputs.published != 'true'
+      - name: 校验版本、最终产物、签名与校验和
         run: ./scripts/collect-windows-artifacts.ps1 -Destination dist/release -Commit $env:RELEASE_SHA
-      - name: Record actual immutable source provenance
-        if: steps.state.outputs.published != 'true'
-        run: node scripts/release-provenance.mjs
-      - name: Attest final assets
-        if: steps.state.outputs.published != 'true'
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      - name: 上传产物供发布阶段使用
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          subject-path: dist/release/*
-          predicate-type: https://slsa.dev/provenance/v1
-          predicate-path: dist/release-provenance.json
-      - name: Publish and verify GitHub upload digests
-        if: steps.state.outputs.published != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-state.mjs --publish
-      - name: Remove temporary certificate
+          name: release-assets
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: 清理临时证书
         if: always()
         shell: pwsh
         run: |
           $certificate = Join-Path $env:RUNNER_TEMP 'floepod-signing.pfx'
           if (Test-Path -LiteralPath $certificate) { Remove-Item -LiteralPath $certificate -Force }
+  publish:
+    name: 第三步 · 发布
+    needs: [prepare, build]
+    if: needs.prepare.outputs.published != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+    steps:
+      - name: 检出已验证的发布来源
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - name: 下载构建产物
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: dist/release
+      - name: 记录不可变来源证明
+        run: node scripts/release-provenance.mjs
+      - name: 为最终产物生成构建证明
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/release/*
+          predicate-type: https://slsa.dev/provenance/v1
+          predicate-path: dist/release-provenance.json
+      - name: 创建并发布 Release，核对上传摘要
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-state.mjs --publish

@@ -101,7 +101,13 @@ async function main() {
   if (process.argv.includes("--prepare")) {
     await ensureTag(api, tag, sha);
     if (release && !release.draft) await verifyPublished(api, release, sha, version);
-    output({ version, tag, published: Boolean(release && !release.draft) });
+    output({
+      version,
+      tag,
+      // 发布类型：预发布（x.y.z-beta<N>）跳过 MSI/MSIX，且永不抢占 latest
+      channel: isPrerelease(version) ? "beta" : "stable",
+      published: Boolean(release && !release.draft),
+    });
     return;
   }
   if (!process.argv.includes("--publish")) throw Error("Expected --prepare or --publish");
