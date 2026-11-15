@@ -106,6 +106,8 @@ async function main() {
     await verifyTagOwnership(api, tag, sha);
     if (release && !release.draft) await verifyPublished(api, release, sha, version);
     output({
+      // sha 供构建与发布 job 检出同一提交、写 manifest 与来源证明
+      sha,
       version,
       tag,
       // 发布类型：预发布（x.y.z-beta<N>）跳过 MSI/MSIX，且永不抢占 latest

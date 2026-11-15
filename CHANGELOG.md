@@ -6,6 +6,7 @@
 
 ### 修复
 
+- **发布工作流第三步来源证明失败**：`release-state.mjs --prepare` 的输出缺了 `sha`（三段式重构时的第二处遗漏），`prepare.outputs.sha` 传空导致构建 manifest 的 `commit` 字段为空、发布 job 的来源证明校验（`Unverified build source`）直接失败。现在 `--prepare` 输出全部五个字段（sha/version/tag/channel/published），并用真实 GitHub API 在本地冒烟验证过整条只读链路；`workflows.test.mjs` 锁定输出链（outputs 引用、checkout 与 env 全部取自同一 `sha`）
 - **发布工作流第一步创建标签被拒（403）**：三段式重构时 `ensureTag`（创建标签需要 `contents:write`）被挪进了只有读权限的第一步，`POST /git/refs` 直接 403。结构性修复：标签改由第三步（持有写权限的发布 job）创建，第一步只做只读归属校验（`verifyTagOwnership`）——构建或打包失败的 run 从此不再占用标签，修复后同版本号即可重新发布，本轮无需升版本号
 - **Release 流水线在打包步骤失败**：`bundle-windows.ps1` 里新加的预发布提示 `Write-Output "Pre-release $version: …"` 是无效的 PowerShell 语法——双引号内 `$version:` 的冒号被当作作用域分隔符，脚本在解析阶段就报 ParserError（`Build executable` 本身已成功，Rust 编译通过）。改为 `${version}` 显式定界。前一轮 `paths.rs` 的 `is_portable` 类型不匹配已由这次 run 证实修复
 - **发布工作流重构为三段式**：`release.yml` 拆为三个串行 job，步骤名统一中文——「第一步 · 确定发布类型与标签」（验证来源、判定正式/预发布、幂等门控、创建标签）→「第二步 · 构建可执行文件」（构建、打包、签名、产物校验，产物经 artifact 传递）→「第三步 · 发布」（下载产物、来源证明与 attestation、创建并发布 Release、核对上传摘要）。已发布的版本在第一步即标记跳过，后两个 job 不再启动；签名证书只在构建 job 内短暂存在，发布 job 持有 contents/id-token/attestations 写权限。`release-state.mjs --prepare` 相应输出 `channel`（stable/beta）

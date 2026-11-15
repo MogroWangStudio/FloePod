@@ -60,6 +60,20 @@ test("release publishes on push to the default branch without the merge notifica
   // 第一步只有读权限：标签由发布阶段（contents:write）创建，构建失败的
   // run 不再占用标签。
   assert.deepEqual(release.jobs.prepare.permissions, { contents: "read" });
+  // 输出链锁定：--prepare 必须输出 sha（曾因缺失导致 provenance 校验失败），
+  // 构建/发布 job 检出与记录都取自同一输出。
+  assert.equal(release.jobs.prepare.outputs.sha, "${{ steps.prepare.outputs.sha }}");
+  const stateScript = readFileSync(
+    new URL("../scripts/release-state.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(stateScript, /output\(\{[\s\S]*?\n\s*sha,/);
+  for (const jobName of ["build", "publish"]) {
+    const job = release.jobs[jobName];
+    const checkout = job.steps.find((step) => step.uses?.startsWith("actions/checkout"));
+    assert.equal(checkout.with.ref, "${{ needs.prepare.outputs.sha }}", jobName);
+    assert.equal(job.env.RELEASE_SHA, "${{ needs.prepare.outputs.sha }}", jobName);
+  }
   const prepareRuns = (release.jobs.prepare.steps ?? []).map((step) => step.run ?? "").join("\n");
   assert.match(prepareRuns, /release-state\.mjs --prepare/);
   assert.doesNotMatch(prepareRuns, /--publish/);
